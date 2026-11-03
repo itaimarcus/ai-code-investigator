@@ -63,10 +63,13 @@ python main.py
 
 Milestone **M0 (Hello Agent)** was completed. We built a minimal agent that answers a question defined in the code. Each run prints the answer, followed by run metrics: model requests, token usage, latency, and estimated cost. Each run was also recorded as a trace in the OpenAI Traces dashboard, where the token counts matched the printed metrics.
 
+Milestone **M1 (Repository Q&A)** is in progress. In its first step we added a sample project for the agent to investigate.
+
 ```text
-main.py                   # entry point: loads configuration, runs the agent, prints the result and metrics
-investigator/agent.py     # agent definition: name, instructions, and model
-investigator/metrics.py   # token usage, latency, and cost estimation for a run
+main.py                       # entry point: loads configuration, runs the agent, prints the result and metrics
+investigator/agent.py         # agent definition: name, instructions, and model
+investigator/metrics.py       # token usage, latency, and cost estimation for a run
+sample_repos/inventory-app/   # sample project the agent investigates (see below)
 ```
 
 `load_dotenv()` loads `.env` into the process environment. The OpenAI client used by the Agents SDK reads `OPENAI_API_KEY` from the environment automatically, so the key is never passed to the `Agent` in code. `OPENAI_MODEL` is an application-specific setting: `main.py` reads it and passes it to `build_agent(model)`. If either variable is missing, `main.py` stops with a clear error before making any API call.
@@ -80,6 +83,32 @@ Token counts come from the SDK's aggregated run usage (`result.context_wrapper.u
 - **`estimate_cost` takes plain numbers, not SDK objects:** this keeps the calculation independent of the SDK's data structures and makes it easy to unit-test.
 - **The model is injected into `build_agent(model)`:** `main.py` reads the configuration and passes it in, so the agent definition doesn't depend on where settings come from. This is a simple form of **dependency injection**. It makes the agent easy to test, and lets future evaluation scripts build agents with different models.
 - **YAGNI ("You Aren't Gonna Need It"):** the price table covers only the model in use rather than a general pricing system for every possible scenario. It's still not throwaway code: the metrics feed the evaluations in M2, and the table can be extended when a second model is actually needed.
+- **Dataclasses for internal data, Pydantic where validation matters:** run metrics are built by our own code from values the SDK already provides, so a standard-library `@dataclass` is enough. Pydantic is reserved for places where validation adds real value, such as structured agent outputs.
+
+### Sample project: `inventory-app`
+
+To check whether the agent's answers are correct, we need an **answer key**: questions whose correct answers we know for certain. That's why the first investigation target is a small project we wrote ourselves, not an unfamiliar codebase.
+
+```text
+sample_repos/inventory-app/   # the project folder given to the agent
+├── README.md                 # short description of the app
+└── inventory/                # the importable Python package
+    ├── products.py           # Product: sku, name, unit_price
+    ├── stock.py              # Stock (add, remove, available) and OutOfStockError
+    ├── pricing.py            # calculate_total, with a 10% discount from 20 units
+    └── orders.py             # place_order: updates stock, then calculates the price
+```
+
+- **Answers that span files:** several questions can only be answered by following connections between files. For example, what happens when an order exceeds the stock requires reading both `orders.py` and `stock.py`. This checks whether the agent actually explores the code rather than guessing.
+- **Reused in later milestones:** the same project and its known answers will serve the evaluations in M2, and seeded bugs for failing-test investigation in M3.
+- **Folder naming:** the outer folder (`inventory-app`) is the project name, and the inner folder (`inventory`) is the importable code. Python package names can't contain hyphens, because `-` would be read as a minus sign in `import` statements. Only the outer folder therefore uses one.
+- **Part of this repository:** the sample project is committed together with the investigator code, so anyone who clones the repository gets the same investigation target.
+- **Verified with a smoke test:** a quick manual check placed a small order, a bulk order, and an order larger than the stock. The results were a total of 10.0, a discounted total of 90.0 (10% off 100), and an `OutOfStockError`, all as designed. The sample project has no automated tests yet. They will be added in M3, when the agent learns to run tests.
+
+### Decided for the next M1 steps
+
+- **Tools receive the repository location through the SDK's run context** (`RunContextWrapper`), not through global variables. Our code decides which folder the agent may explore, and the model never sees or chooses it. This is the same dependency-injection idea as `build_agent(model)`.
+- **File access is split into two layers:** `repo.py` contains plain Python file functions with no SDK code, and `tools.py` contains thin wrappers that expose them to the agent. The plain functions are easy to unit-test, and `repo.py` is the single place for file access that can be strengthened later.
 
 ## Architecture and design decisions
 
@@ -133,7 +162,7 @@ Each milestone has a **Definition of Done (DoD)**: a small, verifiable outcome t
 | Milestone | Scope | Definition of Done |
 | --- | --- | --- |
 | **M0 — Hello Agent** (completed) | Minimal `Agent` and `Runner`; configuration, token usage, estimated API cost, latency, and tracing. | Running `python main.py` returns an answer and usage metrics, with an inspectable trace. |
-| **M1 — Repository Q&A** | Read-only tools to list, read, and search local repository files; Pydantic structured responses; unit tests for tools. | Answer three predefined codebase questions with file references; tool tests pass; basic run metrics are available. |
+| **M1 — Repository Q&A** (in progress) | Read-only tools to list, read, and search local repository files; Pydantic structured responses; unit tests for tools. | Answer predefined questions about the sample project, including questions that span several files, with file references; tool tests pass; run metrics include tool calls. |
 | **M2 — First evaluations** | Small dataset of known-answer questions, automated scoring, and comparisons between model or instruction variants. | Produce a repeatable scorecard with success rate, cost, latency, and tool use; compare at least two variants. |
 | **M3 — Failing-test investigation** | Run `pytest` on trusted sample repositories; produce a structured root-cause report; experiment with agent-driven and code-driven execution. | Identify the buggy function in seeded examples and evaluate the investigation results. |
 | **M4 — Repair, retries, and approval** | Propose edits in a working copy, test and revise them within bounded attempts, present a diff, and require approval before applying changes to the original. | Repair seeded bugs; original files remain unchanged without approval; report repair rate and attempts. |
