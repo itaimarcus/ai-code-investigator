@@ -1,42 +1,31 @@
 # AI Code Investigator
 
-AI Code Investigator is a Python-based project for exploring software repositories, investigating failing tests, and developing agent-assisted code repair workflows.
+A Python project, using the **OpenAI Agents SDK**, that investigates software repositories: answers questions about code, and later will debug failing tests, propose fixes, and apply them only after human approval.
 
-The long-term goal is an agent that can gather evidence from a codebase, identify likely causes of failures, propose changes, validate them against tests, and request human approval before modifying the original repository.
+Built incrementally. The goal is both a working system and a clear understanding of how agents, tools, and application code fit together.
 
-The project is built incrementally using the **OpenAI Agents SDK**, with an emphasis on understandable architecture, observable behavior, and measurable results.
+Private working notes (collaboration rules, prompt drafts, learning backlog) live in `ROADMAP.md`, which is git-ignored. This README is the committed project description.
 
 ## Project goals
 
-I am building this project to explore how AI agents can work with real developer tools and how to engineer them as reliable software systems.
+- Understand agent execution, tool calling, context, and the boundary between model decisions and Python code.
+- Design workflows for code exploration, debugging, and repair.
+- Evaluate behavior with repeatable examples, not only one-off demos.
+- Add technologies (MCP, multi-agent, retrieval, hosted tools) when they serve a real purpose.
+- Apply engineering practices progressively; do not add infrastructure before it is needed.
 
-My priorities are to:
+## Intended capabilities (not all built yet)
 
-- Understand agent execution, tool calling, context management, and the boundary between model decisions and application code.
-- Design useful workflows for code exploration, debugging, and repair.
-- Evaluate behavior using repeatable examples rather than relying solely on individual demonstrations.
-- Experiment with technologies such as MCP, multi-agent orchestration, and retrieval when they serve a meaningful purpose.
-- Apply software engineering practices progressively, without adding infrastructure before it is needed.
-
-## Intended capabilities
-
-The planned system will be able to:
-
-- Explore Python repositories and answer questions with references to relevant files and lines.
-- Investigate failing `pytest` tests and report likely root causes with supporting evidence.
-- Propose code changes and apply them to a separate **working copy** of the repository.
-- Run tests, interpret failures, revise proposed fixes, and stop after a bounded number of attempts.
-- Present a diff for review and require **explicit human approval** before applying changes to the original repository.
-- Measure answer quality, repair success, tool usage, latency, and API cost.
-- Support GitHub repositories and explore GitHub integration through **Model Context Protocol (MCP)**.
-
-These capabilities form the development roadmap; they are not all available in the initial implementation.
+- Explore Python repositories and answer with file and line references.
+- Investigate failing `pytest` tests and report likely causes with evidence.
+- Propose edits on a **working copy**, run tests, revise within a bounded number of attempts.
+- Require **explicit human approval** before changing the original repository.
+- Measure quality, cost, latency, and tool use.
+- Support GitHub repos and **Model Context Protocol (MCP)**.
 
 ## Getting started
 
-**Requirements:** Python 3.12, an OpenAI API key, and internet access for model calls.
-
-From the project directory:
+**Requirements:** Python 3.12, an OpenAI API key, internet access for model calls.
 
 ```bash
 python3.12 -m venv .venv
@@ -44,79 +33,75 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Create a `.env` file in the project root:
+Create `.env` in the project root (git-ignored):
 
 ```dotenv
 OPENAI_API_KEY=your_api_key_here
 OPENAI_MODEL=gpt-6-luna
 ```
 
-`.env` contains secrets and is excluded from version control by `.gitignore`.
-
-Run the entry point:
-
 ```bash
 python main.py
 ```
 
+`load_dotenv()` loads `.env`. The SDK reads `OPENAI_API_KEY` from the environment; it is never passed to `Agent`. `main.py` reads `OPENAI_MODEL` and passes it to `build_agent(model)`. A missing variable raises `RuntimeError` before any API call.
+
+## How we verify
+
+Three kinds of check. Every time we add behavior, we say which of these we used and what we compared.
+
+1. **Smoke tests (no model, no cost).** A smoke test is a quick check that the main path works. Ours are one-off `python -c` commands, not saved as pytest yet. We do not put a `main` block inside `sample_repos/inventory-app/`, because the agent reads that folder. Commands are listed under each step below.
+
+2. **Agent run + printed metrics.** `python main.py` calls the model. After the answer it prints JSON: `requests` (model HTTP calls, not tool calls), token counts, latency, estimated cost.
+
+3. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`; tool names and arguments; adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
+
+**Cost** is an **estimate**, not a bill. Token counts come from `result.context_wrapper.usage`. Prices come from [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and are stored in `investigator/metrics.py` for `gpt-6-luna` only (USD per 1M tokens: input $0.10, cached input $0.01, 30-minute cache write $0.125, output $0.50). Reasoning tokens are already inside `output_tokens` and use the output price. Unknown models still run and print `estimated_cost_usd: null`.
+
+A **request** is one model HTTP call. A **tool call** is our Python function. One request can include several tool calls. `"requests": 3` with four tool calls is normal.
+
 ## Current status
 
-Milestone **M0 (Hello Agent)** was completed. We built a minimal agent that answers a question defined in the code. Each run prints the answer, followed by run metrics: model requests, token usage, latency, and estimated cost. Each run was also recorded as a trace in the OpenAI Traces dashboard, where the token counts matched the printed metrics.
+**M0 complete. M1 in progress through step 1.3.** Next: step 1.4 `search_code`.
 
-Milestone **M1 (Repository Q&A)** is in progress. In its first two steps we added a sample project for the agent to investigate, and gave the agent its first tool, `list_files`. The agent can now see which files the project contains, but it can't read their contents yet.
-
-```text
-main.py                       # entry point: loads configuration, runs the agent, prints the result and metrics
-investigator/agent.py         # agent definition: name, instructions, model, and tools
-investigator/tools.py         # agent-facing tools and RepoContext (the folder the tools may access)
-investigator/repo.py          # plain file functions used by the tools, with no SDK code
-investigator/metrics.py       # token usage, latency, and cost estimation for a run
-sample_repos/inventory-app/   # sample project the agent investigates (see below)
-```
-
-`load_dotenv()` loads `.env` into the process environment. The OpenAI client used by the Agents SDK reads `OPENAI_API_KEY` from the environment automatically, so the key is never passed to the `Agent` in code. `OPENAI_MODEL` is an application-specific setting: `main.py` reads it and passes it to `build_agent(model)`. If either variable is missing, `main.py` stops with a clear error before making any API call.
-
-Token counts come from the SDK's aggregated run usage (`result.context_wrapper.usage`). Cost is an **estimate** based on the price table in `investigator/metrics.py`, which must be kept in sync with OpenAI pricing. The table contains only `gpt-6-luna`, the model the project currently uses. Models without a price entry still run normally and report `estimated_cost_usd: null`.
-
-### Design notes from M0
-
-- **Why measure from the start:** every later decision (which model, which prompt, whether a tool or a second agent helps) is a trade-off between quality, cost, and speed, and that trade-off can only be made with numbers.
-- **Missing pricing information doesn't stop a run:** cost is optional information, so an unknown model produces `null` instead of an error.
-- **`estimate_cost` takes plain numbers, not SDK objects:** this keeps the calculation independent of the SDK's data structures and makes it easy to unit-test.
-- **The model is injected into `build_agent(model)`:** `main.py` reads the configuration and passes it in, so the agent definition doesn't depend on where settings come from. This is a simple form of **dependency injection**. It makes the agent easy to test, and lets future evaluation scripts build agents with different models.
-- **YAGNI ("You Aren't Gonna Need It"):** the price table covers only the model in use rather than a general pricing system for every possible scenario. It's still not throwaway code: the metrics feed the evaluations in M2, and the table can be extended when a second model is actually needed.
-- **Dataclasses for internal data, Pydantic where validation matters:** run metrics are built by our own code from values the SDK already provides, so a standard-library `@dataclass` is enough. Pydantic is reserved for places where validation adds real value, such as structured agent outputs.
-
-### Sample project: `inventory-app`
-
-To check whether the agent's answers are correct, we need an **answer key**: questions whose correct answers we know for certain. That's why the first investigation target is a small project we wrote ourselves, not an unfamiliar codebase.
+The agent investigates `sample_repos/inventory-app/` only. It can list files and read them. The model does not choose that folder. Paths it names must stay inside it. It cannot search yet, cannot edit, and has no pytest tests of our tools.
 
 ```text
-sample_repos/inventory-app/   # the project folder given to the agent
-├── README.md                 # short description of the app
-└── inventory/                # the importable Python package
-    ├── products.py           # Product: sku, name, unit_price
-    ├── stock.py              # Stock (add, remove, available) and OutOfStockError
-    ├── pricing.py            # calculate_total, with a 10% discount from 20 units
-    └── orders.py             # place_order: updates stock, then calculates the price
+main.py                       # config, run, print answer + metrics
+investigator/agent.py         # name, instructions, model, tools
+investigator/tools.py         # RepoContext + @function_tool wrappers
+investigator/repo.py          # disk access (list, resolve, read); no SDK
+investigator/metrics.py       # tokens, latency, cost estimate
+sample_repos/inventory-app/   # investigation target
 ```
 
-- **Answers that span files:** several questions can only be answered by following connections between files. For example, what happens when an order exceeds the stock requires reading both `orders.py` and `stock.py`. This checks whether the agent actually explores the code rather than guessing.
-- **Reused in later milestones:** the same project and its known answers will serve the evaluations in M2, and seeded bugs for failing-test investigation in M3.
-- **Folder naming:** the outer folder (`inventory-app`) is the project name, and the inner folder (`inventory`) is the importable code. Python package names can't contain hyphens, because `-` would be read as a minus sign in `import` statements. Only the outer folder therefore uses one.
-- **Part of this repository:** the sample project is committed together with the investigator code, so anyone who clones the repository gets the same investigation target.
-- **Verified with a smoke test:** a quick manual check placed a small order, a bulk order, and an order larger than the stock. The results were a total of 10.0, a discounted total of 90.0 (10% off 100), and an `OutOfStockError`, all as designed. The sample project has no automated tests yet. They will be added in M3, when the agent learns to run tests.
+Current question in `main.py`: `What discount do bulk orders get, and where is it applied?`
 
-#### What a smoke test is, and why it was run from the terminal
+## What we built and how we checked it
 
-A **smoke test** is a quick, shallow check that the main path works and nothing crashes. Unlike an automated test, it isn't saved in the repository, so it isn't repeatable or protected against future changes. What makes it a smoke test is its purpose, not where it runs: the same check could live in a script or a `main` block.
+### M0 — Hello agent
 
-It was run as a one-off `python -c` command from `sample_repos/inventory-app/`, rather than as a `main` block inside the sample project, for two reasons:
+Minimal `Agent` + `Runner.run_sync`, no tools. Metrics printed after each run.
 
-- **The sample project stays unchanged.** The agent reads this folder, so throwaway check code would become part of what it investigates.
-- **The code is imported the way other code will import it** (`from inventory.orders import place_order`). Running a module file directly, such as `python inventory/orders.py`, fails with `ModuleNotFoundError: No module named 'inventory'`. Python then starts looking for imports inside the `inventory/` folder itself, so it can't find the `inventory` package.
+**Checked:** `python main.py` printed an answer; metrics showed `"requests": 1`. Traces: one `POST /v1/responses`; token counts matched. Cost matched a hand calculation from the pricing table (input × $0.10 + output × $0.50, per million tokens). Latency for the same call varied (about 3 s vs 9.5 s) because of provider-side wait, not our code.
 
-To rerun it, from `sample_repos/inventory-app/` with the virtual environment active:
+### M1.1 — Sample project `inventory-app`
+
+```text
+sample_repos/inventory-app/     # folder given to the agent
+├── README.md
+└── inventory/                  # importable package (name cannot contain '-')
+    ├── products.py             # Product: sku, name, unit_price
+    ├── stock.py                # Stock + OutOfStockError
+    ├── pricing.py              # 10% off from 20 units
+    └── orders.py               # place_order: stock then pricing
+```
+
+The outer name may use a hyphen; the inner package name may not (`import inventory-src` is invalid). The sample project is committed with this repo.
+
+There is **no written answer key file** yet (decided to add at step 1.6 / M2). We know the facts because we wrote the code. The key must never live inside `inventory-app/` (the agent can read that folder). Sample-project pytest tests wait for M3.
+
+**Checked with a smoke test** from `sample_repos/inventory-app/` (imports work here; `python inventory/orders.py` does not):
 
 ```bash
 python -c "
@@ -134,102 +119,87 @@ except OutOfStockError as e:
 "
 ```
 
-### First tool: `list_files`
+Expected: `10.0` / 28 left; `90.0` / 8 left; `OutOfStockError`.
 
-A model can only receive and produce text; it can't open folders or run code. A **tool** is a Python function that the model may ask us to run. With each request, the SDK sends the model a description of every tool, built from the function's name, type hints, and docstring. Instead of answering, the model can reply with a structured **tool call** that names a tool. The SDK then runs that function on our machine and sends its return value back to the model, which continues from there.
+### M1.2 — `list_files`
 
-With `list_files`, a question now takes two model requests. In the first, the model asks for the tool. In the second, it receives the file list and answers. This repeating cycle is the **agentic loop**.
+A **tool** is a Python function the model may ask us to run. `@function_tool` (Agents SDK; not LangChain `@tool`) builds the schema from the name, types, and docstring. The SDK runs the function and sends the return string back to the model. That repeat is the **agentic loop**.
 
-- **Our code decides which folder the tools can access.** `main.py` passes `RepoContext(root=...)` to `Runner.run_sync` as the run **context**. The SDK hands it to every tool it calls, through the `ctx: RunContextWrapper[RepoContext]` parameter, but never sends it to the model. The tool's description lists no parameters at all, so the model can't choose or even see the folder path. This is the same dependency-injection idea as `build_agent(model)`, using the SDK's own mechanism.
-- **File access is split into two layers.** `repo.py` contains plain Python file functions with no SDK code, and `tools.py` contains thin wrappers that expose them to the agent. The plain functions are easy to unit-test, and `repo.py` is the single place for file access that can be strengthened later.
-- **The tool output is kept compact.** Paths are relative to the project root (`inventory/orders.py`), so they're shorter and don't reveal the local machine's folders. Noise folders such as `__pycache__` are skipped, because their contents cost tokens without helping the model.
+The folder is `RepoContext(root=...)` passed to `Runner.run_sync`. Tools receive it as `ctx: RunContextWrapper[RepoContext]`; `ctx.context.root` is the folder. The model never sees it (`list_files` schema has no parameters). `ctx` exists only while a tool runs; after the run, the same envelope is `result.context_wrapper`.
 
-**Result:** asked which files the project contains and what each is responsible for, the agent listed all six files. It noted that it had inferred their roles from the file names, since it couldn't read the files yet. The metrics showed `"requests": 2`, confirming the two-step loop. Input tokens rose from 64 to 281, because the tool description and the file list are sent to the model. Latency also grew, because of the second model request and a longer answer. The trace showed the `list_files` call between the two model turns, and the token counts of both turns together matched the printed totals.
+`repo.py` talks to the disk; `tools.py` only wraps it for the agent.
 
-To rerun the checks, from the project root with the virtual environment active:
+**Checked:**
 
 ```bash
-# the plain file function alone (no model call, no cost)
 python -c "from pathlib import Path; from investigator import repo; print(repo.list_files(Path('sample_repos/inventory-app')))"
-
-# what the model is told about the tool: name, description, parameters
 python -c "from investigator.tools import list_files; print(list_files.name); print(list_files.description); print(list_files.params_json_schema)"
-
-# the full agent run
-python main.py
 ```
+
+Expected: six relative paths; schema `'properties': {}`. An earlier `python main.py` (question about files) listed all six, `"requests": 2`, input tokens 64 → 281. Trace: `list_files` between two model turns; turn tokens summed to the printout.
+
+### M1.3 — `read_file`
+
+The model now names a path. That string is untrusted. `resolve_in_repo` refuses paths outside `sample_repos/inventory-app/` (for example `../../.env`). **Do not test confinement with `.env`.** If the check were buggy, the command would print the secret. Use `../../README.md`.
+
+Missing or illegal paths: `repo.py` raises `RepoAccessError`; `tools.py` returns `str(error)` so the run continues. The model chooses the next tool; `read_file` does not call `list_files` itself.
+
+Output: numbered lines, optional `start_line` / `end_line` (1-based, inclusive), cap 400 lines per call (request another range to continue). Path confinement is not a denylist: `.env` *inside* the allowed folder would still be readable (deferred).
+
+**Checked (no model):**
+
+```bash
+python -c "from pathlib import Path; from investigator import repo; print(repo.read_file(Path('sample_repos/inventory-app'), 'inventory/pricing.py'))"
+python -c "from pathlib import Path; from investigator import repo; print(repo.read_file(Path('sample_repos/inventory-app'), 'inventory/pricing.py', start_line=3, end_line=4))"
+python -c "from pathlib import Path; from investigator import repo; repo.read_file(Path('sample_repos/inventory-app'), '../../README.md')"
+python -c "from pathlib import Path; from investigator import repo; repo.read_file(Path('sample_repos/inventory-app'), 'inventory/order.py')"
+```
+
+Expected: full numbered `pricing.py` including `BULK_DISCOUNT_THRESHOLD = 20` and `BULK_DISCOUNT_RATE = 0.10`; two-line range; `RepoAccessError` outside the folder; `File not found: inventory/order.py. Use list_files to see available files.` Calling `repo.read_file` from the terminal prints a traceback (nothing catches the exception). The agent sees only the message string.
+
+**Checked (model + trace):** `python main.py` answered 10% off for 20+ units, used by `place_order`. Facts correct; printed text named functions, not `pricing.py` / `orders.py`. Metrics: `"requests": 3`, ~1200 input tokens, ~8.2 s, cost from the pricing table. Trace ([Agents SDK logs](https://platform.openai.com/logs?api=traces)): three `POST /v1/responses`; `list_files` then three `read_file`s in one turn (including `README.md`, not required); final answer with no tools. Latency matched ~8146 ms. Tool spans 1–5 ms. Order inside a batch does not matter: all three reads were requested before any file body was seen.
 
 ## Architecture and design decisions
 
-The following choices describe the intended direction. Decisions tied to later functionality remain open until their trade-offs can be assessed in practice.
+Guiding rule: **the agent reasons and proposes; Python executes and enforces boundaries.**
 
 | Area | Approach | Rationale |
 | --- | --- | --- |
-| Agent framework | Python + OpenAI Agents SDK | Work directly with agent execution, tools, and lifecycle concepts before introducing another orchestration framework. |
-| Initial interface | Python entry point with input and instructions in source code | Prioritize agent behavior before building a CLI or UI. |
-| Configuration | `.env` loaded with `python-dotenv` | Keep secrets and runtime settings, such as the model name, out of source code. |
-| Dependencies | `requirements.txt` | Keep local setup straightforward; change dependency management only if a clear need arises. |
-| Repository scope | Local, trusted Python repositories first | Develop investigation and test workflows before introducing remote repository integration or untrusted-code execution. |
-| Code exploration | Dedicated, scoped file and search tools | Let the agent retrieve relevant information on demand instead of loading entire repositories into the model context. |
-| Editing | Work on a separate copy, not the original repository | Allow iterative repair experiments while the original repository stays unchanged until a change is reviewed and approved. |
-| Approval | Explicit human approval before applying a patch to the original | Keep consequential changes under user control. |
-| Orchestration | Compare agent-driven, Python-driven, and hybrid workflows | Understand the trade-off between autonomy and predictable control before committing to one pattern. |
-| Evaluation | Introduce small, repeatable evaluations early | Measure correctness and compare prompts, models, tools, and architectures. |
-| Observability | Record token usage, estimated cost, latency, tool calls, and traces | Make agent behavior and operating costs understandable. |
-| Advanced integrations | Add MCP, GitHub, multi-agent systems, and other tools incrementally | Use new technologies when they enable capabilities or useful architectural experiments. |
+| Framework | Python + OpenAI Agents SDK | Learn agents, tools, and lifecycle before another orchestrator. |
+| Interface | `main.py`; question and instructions in source | Agent behavior before CLI/UI. |
+| Config | `.env` + `python-dotenv` | Secrets and model name stay out of code. |
+| Dependencies | `requirements.txt` | Change only if a clear need arises. |
+| Internal data | `@dataclass` (`RunMetrics`, `RepoContext`) | No validation needed; Pydantic later for agent `output_type`. |
+| Repo scope | Local, trusted Python first | Investigation before untrusted execution or GitHub. |
+| Exploration | Custom list/read/search tools | Model pulls files on demand; we control path safety and size. |
+| Tool context | SDK `RunContextWrapper` + `RepoContext` | We choose the folder; the model cannot. |
+| File access | `repo.py` (disk) / `tools.py` (agent) | One place to harden later; tools stay thin. |
+| Editing | Working copy (from M4) | Original files stay unchanged until approval. |
+| Approval | Explicit human approval (from M4) | Required, not optional. |
+| Orchestration | Compare agent-driven vs Python-driven later | Do not commit the whole project to one style now. |
+| Evaluation | Small evals in M2 | Measure prompts, models, tools. |
+| Observability | Tokens, estimated cost, latency, traces | Cost uses OpenAI list prices; traces confirm usage. |
+| Integrations | MCP, GitHub, multi-agent, hosted tools later | When they enable a capability or a fair experiment. |
 
-### Synchronous vs. asynchronous execution
+**Sync vs async (open):** `Runner.run_sync` now. `await Runner.run` when we need parallel evals, several users, streaming (`Runner.run_streamed`), or parallel agents. Threads are another option (sync code, several waiters). Decide when a need appears.
 
-The agent currently runs synchronously with `Runner.run_sync`: the program waits for each model reply before doing anything else. That is the simplest option when handling one question at a time.
+**Trusted repos vs original files:** trusting the sample code is not a claim that unknown repos are safe. `pytest` would run their code with local permissions. A working copy is not a sandbox.
 
-Most of a run is spent waiting for the model provider's servers, not running our code. Asynchronous execution (`await Runner.run`) lets the program do other work during that waiting. It becomes relevant when:
-
-- **Running many evaluation questions in parallel**, instead of one after another.
-- **Serving several users at once**, through a web UI or an API.
-- **Streaming answers word by word** as they are generated (`Runner.run_streamed`), instead of waiting for the complete answer.
-- **Running several agents or tool calls in parallel** within one investigation.
-
-Threads are another way to run several waiting tasks at once, using ordinary synchronous code. The approach will be chosen when one of these needs actually arises.
-
-### Agent reasoning vs. deterministic application code
-
-An important design boundary is the distinction between what the language model **decides** and what Python **enforces**.
-
-**Agent decisions** may include choosing files to inspect, developing hypotheses about failures, interpreting test output, proposing patches, and deciding whether more investigation is warranted.
-
-**Deterministic application code** handles file operations, repository path restrictions, test execution, working-copy management, approval checks, retry limits, and metric collection.
-
-A useful guiding principle is: **the agent reasons and proposes; application code executes operations and enforces their boundaries.** This does not require a fully predetermined workflow. The degree of autonomy is itself a design choice to explore.
-
-### Local tools and model context
-
-Repository tools execute in Python. For example, a future `search_code` tool can search a local codebase and return matching filenames and line numbers. The model receives the returned tool output and may request additional files as needed.
-
-Similarly, invoking `pytest` through a Python tool runs the tests locally; it does **not** automatically upload the repository to the model. Only the selected output returned by the tool, such as failing test names or relevant tracebacks, is passed to the agent. Files explicitly returned by read tools can also enter the model's context.
-
-### Trusted repository scope and change protection
-
-The initial development scope assumes repositories are owned or explicitly trusted. It does not include sandboxing arbitrary third-party code or comprehensive defenses against malicious repository content.
-
-This is a **scope limitation**, not a claim that running unknown repositories is safe. `pytest` can execute arbitrary repository code with the permissions of the local process. Supporting untrusted sources would require revisiting execution isolation, credentials, and prompt-injection risks.
-
-Protecting **original project files** is a separate requirement. Before edit capabilities are added, the agent has read-only tools. When repair functionality is introduced, changes will be made on a working copy and applied to the original only after human review and approval. A working copy prevents direct edits to the original; it is **not** a security sandbox.
-
-File access and test execution should remain behind clear interfaces so their implementations can be strengthened later without unnecessarily coupling safety mechanisms to the agent logic.
+**Local tools vs uploading a repo:** tools run here. Only the strings they return go to the model.
 
 ## Development roadmap
 
-Each milestone has a **Definition of Done (DoD)**: a small, verifiable outcome that establishes what the milestone should demonstrate.
-
 | Milestone | Scope | Definition of Done |
 | --- | --- | --- |
-| **M0 — Hello Agent** (completed) | Minimal `Agent` and `Runner`; configuration, token usage, estimated API cost, latency, and tracing. | Running `python main.py` returns an answer and usage metrics, with an inspectable trace. |
-| **M1 — Repository Q&A** (in progress) | Read-only tools to list, read, and search local repository files; Pydantic structured responses; unit tests for tools. | Answer three predefined codebase questions with file references; tool tests pass; basic run metrics are available. |
-| **M2 — First evaluations** | Small dataset of known-answer questions, automated scoring, and comparisons between model or instruction variants. | Produce a repeatable scorecard with success rate, cost, latency, and tool use; compare at least two variants. |
-| **M3 — Failing-test investigation** | Run `pytest` on trusted sample repositories; produce a structured root-cause report; experiment with agent-driven and code-driven execution. | Identify the buggy function in seeded examples and evaluate the investigation results. |
-| **M4 — Repair, retries, and approval** | Propose edits in a working copy, test and revise them within bounded attempts, present a diff, and require approval before applying changes to the original. | Repair seeded bugs; original files remain unchanged without approval; report repair rate and attempts. |
-| **M5 — SDK workflow patterns** | Explore SDK guardrails, built-in human-in-the-loop approvals, and sessions for multi-turn investigations. | Establish specific experiments and acceptance criteria when this work begins. |
-| **M6 — Multi-agent experiments** | Compare specialized agents, handoffs, and agent-as-tool patterns with a single-agent baseline. | Compare reliability, behavior, and resource usage using the evaluation suite. |
-| **M7 — MCP and GitHub** | Consume external tools through MCP, expose investigator capabilities as an MCP server, and support GitHub repositories. | Define integration and execution-safety criteria before implementation. |
+| **M0 — Hello Agent** (completed) | Agent, Runner, config, metrics, tracing | `python main.py` prints answer + metrics; trace inspectable |
+| **M1 — Repository Q&A** (in progress; 1.3 done) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
+| **M2 — First evaluations** | Known-answer set, scorecard, compare variants | Repeatable scorecard; at least two variants |
+| **M3 — Failing-test investigation** | `run_tests` on trusted samples | Find the buggy function in seeded examples |
+| **M4 — Repair, retries, approval** | Working copy, bounded retries, diff, approval | Fixes seeded bugs; original unchanged without approval |
+| **M5 — SDK patterns** | Guardrails, HITL, sessions | Experiments defined when this starts |
+| **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
+| **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-Additional explorations may include Ruff linting, GitHub Actions CI, richer logging, Docker-based isolation for untrusted code, RAG and embeddings compared with textual search, LangGraph, and a CLI or web UI. These are intentionally deferred until they add practical or educational value.
+**Next implementation step: 1.4 `search_code`** (plain text search in `repo.py` + tool wrapper). Then 1.5 structured Pydantic output; 1.6 tool-call metrics, pytest, Definition of Done.
+
+Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.

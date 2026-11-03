@@ -12,7 +12,7 @@ from investigator.metrics import collect_metrics
 from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
-QUESTION = "What files does this project contain, and what is each one probably responsible for?"
+QUESTION = "What discount do bulk orders get, and where is it applied?"
 
 
 def require_env(name: str) -> str:
