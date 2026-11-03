@@ -61,14 +61,25 @@ python main.py
 
 ## Current status
 
-Milestone **M0** is in progress. Running `main.py` sends a question defined in the code to a minimal agent and prints its answer.
+Milestone **M0 (Hello Agent)** was completed. We built a minimal agent that answers a question defined in the code. Each run prints the answer, followed by run metrics: model requests, token usage, latency, and estimated cost. Each run was also recorded as a trace in the OpenAI Traces dashboard, where the token counts matched the printed metrics.
 
 ```text
-main.py                 # entry point: loads configuration, runs the agent, prints the result
-investigator/agent.py   # agent definition: name, instructions, and model
+main.py                   # entry point: loads configuration, runs the agent, prints the result and metrics
+investigator/agent.py     # agent definition: name, instructions, and model
+investigator/metrics.py   # token usage, latency, and cost estimation for a run
 ```
 
 `load_dotenv()` loads `.env` into the process environment. The OpenAI client used by the Agents SDK reads `OPENAI_API_KEY` from the environment automatically, so the key is never passed to the `Agent` in code. `OPENAI_MODEL` is an application-specific setting: `main.py` reads it and passes it to `build_agent(model)`. If either variable is missing, `main.py` stops with a clear error before making any API call.
+
+Token counts come from the SDK's aggregated run usage (`result.context_wrapper.usage`). Cost is an **estimate** based on the price table in `investigator/metrics.py`, which must be kept in sync with OpenAI pricing. The table contains only `gpt-6-luna`, the model the project currently uses. Models without a price entry still run normally and report `estimated_cost_usd: null`.
+
+### Design notes from M0
+
+- **Why measure from the start:** every later decision (which model, which prompt, whether a tool or a second agent helps) is a trade-off between quality, cost, and speed, and that trade-off can only be made with numbers.
+- **Missing pricing information doesn't stop a run:** cost is optional information, so an unknown model produces `null` instead of an error.
+- **`estimate_cost` takes plain numbers, not SDK objects:** this keeps the calculation independent of the SDK's data structures and makes it easy to unit-test.
+- **The model is injected into `build_agent(model)`:** `main.py` reads the configuration and passes it in, so the agent definition doesn't depend on where settings come from. This is a simple form of **dependency injection**. It makes the agent easy to test, and lets future evaluation scripts build agents with different models.
+- **YAGNI ("You Aren't Gonna Need It"):** the price table covers only the model in use rather than a general pricing system for every possible scenario. It's still not throwaway code: the metrics feed the evaluations in M2, and the table can be extended when a second model is actually needed.
 
 ## Architecture and design decisions
 
@@ -121,7 +132,7 @@ Each milestone has a **Definition of Done (DoD)**: a small, verifiable outcome t
 
 | Milestone | Scope | Definition of Done |
 | --- | --- | --- |
-| **M0 — Hello Agent** | Minimal `Agent` and `Runner`; configuration, token usage, estimated API cost, latency, and tracing. | Running `python main.py` returns an answer and usage metrics, with an inspectable trace. |
+| **M0 — Hello Agent** (completed) | Minimal `Agent` and `Runner`; configuration, token usage, estimated API cost, latency, and tracing. | Running `python main.py` returns an answer and usage metrics, with an inspectable trace. |
 | **M1 — Repository Q&A** | Read-only tools to list, read, and search local repository files; Pydantic structured responses; unit tests for tools. | Answer three predefined codebase questions with file references; tool tests pass; basic run metrics are available. |
 | **M2 — First evaluations** | Small dataset of known-answer questions, automated scoring, and comparisons between model or instruction variants. | Produce a repeatable scorecard with success rate, cost, latency, and tool use; compare at least two variants. |
 | **M3 — Failing-test investigation** | Run `pytest` on trusted sample repositories; produce a structured root-cause report; experiment with agent-driven and code-driven execution. | Identify the buggy function in seeded examples and evaluate the investigation results. |
