@@ -34,3 +34,12 @@ def read_file(
         return repo.read_file(ctx.context.root, path, start_line, end_line)
     except repo.RepoAccessError as exc:
         return str(exc)
+
+
+@function_tool
+def search_code(ctx: RunContextWrapper[RepoContext], query: str) -> str:
+    """Search repository files for a literal (exact substring), case-sensitive.
+
+    Returns matching lines as path:line: text.
+    """
+    return repo.search_code(ctx.context.root, query)

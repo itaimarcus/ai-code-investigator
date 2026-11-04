@@ -1,6 +1,6 @@
 from agents import Agent
 
-from investigator.tools import RepoContext, list_files, read_file
+from investigator.tools import RepoContext, list_files, read_file, search_code
 
 INSTRUCTIONS = """\
 You are a code investigator: an assistant that helps developers understand a software repository.
@@ -14,5 +14,5 @@ def build_agent(model: str) -> Agent[RepoContext]:
         name="Code Investigator",
         instructions=INSTRUCTIONS,
         model=model,
-        tools=[list_files, read_file],
+        tools=[list_files, read_file, search_code],
     )
