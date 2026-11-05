@@ -34,7 +34,7 @@ def main() -> None:
     result = Runner.run_sync(agent, QUESTION, context=RepoContext(root=REPO_ROOT))
     latency_seconds = time.perf_counter() - start
 
-    print(result.final_output)
+    print(json.dumps(result.final_output.model_dump(mode="json"), indent=2))
 
     metrics = collect_metrics(result, model, latency_seconds)
     print("\n--- Run metrics ---")

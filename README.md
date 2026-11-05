@@ -62,13 +62,14 @@ A **request** is one model HTTP call. A **tool call** is our Python function. On
 
 ## Current status
 
-**M0 complete. M1 in progress through step 1.4.** Next: step 1.5 structured Pydantic answers.
+**M0 complete. M1 in progress through step 1.5.** Next: step 1.6 tool-call metrics, pytest, Definition of Done.
 
-The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The model does not choose that folder. Paths it names must stay inside it. It cannot edit, and has no pytest tests of our tools.
+The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The printed result is a report with a short summary plus file and line citations. The model does not choose that folder. Paths it names must stay inside it. It cannot edit, and has no pytest tests of our tools.
 
 ```text
-main.py                       # config, run, print answer + metrics
-investigator/agent.py         # name, instructions, model, tools
+main.py                       # config, run, print report + metrics
+investigator/agent.py         # name, instructions, model, tools, output type
+investigator/report.py        # InvestigationReport (summary + citations)
 investigator/tools.py         # RepoContext + @function_tool wrappers
 investigator/repo.py          # disk access (list, resolve, read, search); no SDK
 investigator/metrics.py       # tokens, latency, cost estimate
@@ -169,7 +170,7 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | Interface | `main.py`; question and instructions in source | Agent behavior before CLI/UI. |
 | Config | `.env` + `python-dotenv` | Secrets and model name stay out of code. |
 | Dependencies | `requirements.txt` | Change only if a clear need arises. |
-| Internal data | `@dataclass` (`RunMetrics`, `RepoContext`) | No validation needed; Pydantic later for agent `output_type`. |
+| Internal data | `@dataclass` (`RunMetrics`, `RepoContext`); Pydantic `InvestigationReport` | Dataclass for our records; Pydantic when the SDK validates the model's final reply. |
 | Repo scope | Local, trusted Python first | Investigation before untrusted execution or GitHub. |
 | Exploration | Custom list/read/search tools | Model pulls files on demand; we control path safety and size. |
 | Tool context | SDK `RunContextWrapper` + `RepoContext` | We choose the folder; the model cannot. |
@@ -192,7 +193,7 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | Milestone | Scope | Definition of Done |
 | --- | --- | --- |
 | **M0 — Hello Agent** (completed) | Agent, Runner, config, metrics, tracing | `python main.py` prints answer + metrics; trace inspectable |
-| **M1 — Repository Q&A** (in progress; 1.4 done) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
+| **M1 — Repository Q&A** (in progress; 1.5 done) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
 | **M2 — First evaluations** | Known-answer set, scorecard, compare variants | Repeatable scorecard; at least two variants |
 | **M3 — Failing-test investigation** | `run_tests` on trusted samples | Find the buggy function in seeded examples |
 | **M4 — Repair, retries, approval** | Working copy, bounded retries, diff, approval | Fixes seeded bugs; original unchanged without approval |
@@ -200,6 +201,6 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
 | **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-**Next implementation step: 1.5 structured Pydantic output** (`output_type`). Then 1.6 tool-call metrics, pytest, Definition of Done.
+**Next implementation step: 1.6** tool-call counts in metrics, first pytest tests, Definition of Done.
 
 Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.
