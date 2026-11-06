@@ -50,11 +50,11 @@ python main.py
 
 Three kinds of check. Every time we add behavior, we say which of these we used and what we compared.
 
-1. **Smoke tests (no model, no cost).** A smoke test is a quick check that the main path works. Ours are one-off `python -c` commands, not saved as pytest yet. We do not put a `main` block inside `sample_repos/inventory-app/`, because the agent reads that folder. Commands are listed under each step below.
+1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, cost math, report fields). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read.
 
-2. **Agent run + printed metrics.** `python main.py` calls the model. After the answer it prints JSON: `requests` (model HTTP calls, not tool calls), token counts, latency, estimated cost.
+2. **Agent run + printed metrics.** `python main.py` calls the model. After the report it prints JSON: `requests` (model HTTP calls), `tool_calls` (our Python functions, also split by name), token counts, latency, estimated cost. Read the report yourself: you know the shop because we wrote it.
 
-3. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`; tool names and arguments; adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
+3. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`; number of tool rows equals printed `tool_calls`; tool names and arguments; adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
 
 **Cost** is an **estimate**, not a bill. Token counts come from `result.context_wrapper.usage`. Prices come from [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and are stored in `investigator/metrics.py` for `gpt-6-luna` only (USD per 1M tokens: input $0.10, cached input $0.01, 30-minute cache write $0.125, output $0.50). Reasoning tokens are already inside `output_tokens` and use the output price. Unknown models still run and print `estimated_cost_usd: null`.
 
@@ -62,9 +62,9 @@ A **request** is one model HTTP call. A **tool call** is our Python function. On
 
 ## Current status
 
-**M0 complete. M1 in progress through step 1.5.** Next: step 1.6 tool-call metrics, pytest, Definition of Done.
+**M0 and M1 complete.** Next: M2 first evaluations.
 
-The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The printed result is a report with a short summary plus file and line citations. The model does not choose that folder. Paths it names must stay inside it. It cannot edit, and has no pytest tests of our tools.
+The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. The model does not choose that folder. Paths it names must stay inside it. It cannot edit.
 
 ```text
 main.py                       # config, run, print report + metrics
@@ -72,7 +72,8 @@ investigator/agent.py         # name, instructions, model, tools, output type
 investigator/report.py        # InvestigationReport (summary + citations)
 investigator/tools.py         # RepoContext + @function_tool wrappers
 investigator/repo.py          # disk access (list, resolve, read, search); no SDK
-investigator/metrics.py       # tokens, latency, cost estimate
+investigator/metrics.py       # tokens, latency, cost, tool-call counts
+tests/                        # pytest for repo.py, metrics, report (no OpenAI)
 sample_repos/inventory-app/   # investigation target
 ```
 
@@ -193,7 +194,7 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | Milestone | Scope | Definition of Done |
 | --- | --- | --- |
 | **M0 — Hello Agent** (completed) | Agent, Runner, config, metrics, tracing | `python main.py` prints answer + metrics; trace inspectable |
-| **M1 — Repository Q&A** (in progress; 1.5 done) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
+| **M1 — Repository Q&A** (completed) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
 | **M2 — First evaluations** | Known-answer set, scorecard, compare variants | Repeatable scorecard; at least two variants |
 | **M3 — Failing-test investigation** | `run_tests` on trusted samples | Find the buggy function in seeded examples |
 | **M4 — Repair, retries, approval** | Working copy, bounded retries, diff, approval | Fixes seeded bugs; original unchanged without approval |
@@ -201,6 +202,6 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
 | **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-**Next implementation step: 1.6** tool-call counts in metrics, first pytest tests, Definition of Done.
+**Next implementation step: M2** first evaluations (scorecard; compare variants).
 
 Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.

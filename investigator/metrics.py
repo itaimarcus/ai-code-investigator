@@ -26,6 +26,8 @@ PRICES: dict[str, TokenPrices] = {
 class RunMetrics:
     model: str
     requests: int
+    tool_calls: int
+    tool_calls_by_name: dict[str, int]
     input_tokens: int
     cached_input_tokens: int
     cache_write_tokens: int
@@ -57,6 +59,18 @@ def estimate_cost(
     return total / 1_000_000
 
 
+def count_tool_calls(items: list[object]) -> tuple[int, dict[str, int]]:
+    by_name: dict[str, int] = {}
+    for item in items:
+        if getattr(item, "type", None) != "tool_call_item":
+            continue
+        name = getattr(item, "tool_name", None)
+        if not name:
+            continue
+        by_name[name] = by_name.get(name, 0) + 1
+    return sum(by_name.values()), by_name
+
+
 def collect_metrics(
     result: RunResult, model: str, latency_seconds: float
 ) -> RunMetrics:
@@ -70,10 +84,13 @@ def collect_metrics(
         cache_write_tokens,
         usage.output_tokens,
     )
+    tool_calls, tool_calls_by_name = count_tool_calls(result.new_items)
 
     return RunMetrics(
         model=model,
         requests=usage.requests,
+        tool_calls=tool_calls,
+        tool_calls_by_name=tool_calls_by_name,
         input_tokens=usage.input_tokens,
         cached_input_tokens=cached_input_tokens,
         cache_write_tokens=cache_write_tokens,
