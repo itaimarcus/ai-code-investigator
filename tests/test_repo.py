@@ -13,6 +13,8 @@ SHOP_FILES = [
     "inventory/pricing.py",
     "inventory/products.py",
     "inventory/stock.py",
+    "pytest.ini",
+    "tests/test_pricing.py",
 ]
 
 
@@ -78,6 +80,13 @@ def test_search_code_caps_per_file_and_still_shows_later_file(tmp_path: Path) ->
     assert "a.py:5:" in text
     assert "b.py:1:" in text
     assert "more than 5 matches in: a.py" in text
+
+
+def test_run_tests_returns_failure_text(tmp_path: Path) -> None:
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "test_sample.py").write_text("def test_fails():\n    assert False\n")
+    text = repo.run_tests(tmp_path)
+    assert "assert False" in text
 
 
 def test_search_code_notes_skipped_unreadable_file(tmp_path: Path) -> None:

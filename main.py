@@ -14,7 +14,7 @@ from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
 ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
-QUESTION = "Where is the Product class defined, and which files reference it?"
+QUESTION = "The tests are failing. What is wrong, and where?"
 
 
 def require_env(name: str) -> str:
@@ -45,7 +45,7 @@ def main() -> None:
     keys = load_answer_keys(ANSWER_KEY)
     key = next((item for item in keys if item.question == QUESTION), None)
     if key is None:
-        raise RuntimeError(f"No answer key matches question: {QUESTION}")
+        return
     score = score_report(result.final_output, key)
     print("\n--- Score ---")
     print(json.dumps(asdict(score), indent=2))

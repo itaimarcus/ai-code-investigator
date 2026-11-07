@@ -1,9 +1,13 @@
+import subprocess
+import sys
 from pathlib import Path
 
 IGNORED_DIRS = {"__pycache__", ".git", ".venv", ".pytest_cache"}
 MAX_READ_LINES = 400
 MAX_MATCHES_PER_FILE = 5
 MAX_MATCHES_TOTAL = 50
+MAX_TEST_OUTPUT = 8000
+TEST_TIMEOUT_SECONDS = 30
 
 
 class RepoAccessError(Exception):
@@ -137,3 +141,47 @@ def search_code(root: Path, query: str) -> str:
     if notes:
         text += "\n\n" + "\n".join(f"[{note}]" for note in notes)
     return text
+
+
+def run_tests(root: Path) -> str:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=TEST_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = _combine_stdio(exc.stdout, exc.stderr)
+        return _clip_test_output(
+            f"{partial}\n[pytest timed out after {TEST_TIMEOUT_SECONDS} seconds]"
+        )
+    except OSError as exc:
+        return f"Could not start pytest: {exc}"
+
+    text = _combine_stdio(completed.stdout, completed.stderr)
+    if not text.strip():
+        text = f"pytest produced no output (exit code {completed.returncode})."
+    return _clip_test_output(text)
+
+
+def _combine_stdio(stdout: str | bytes | None, stderr: str | bytes | None) -> str:
+    return _as_text(stdout) + _as_text(stderr)
+
+
+def _as_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _clip_test_output(text: str) -> str:
+    if len(text) <= MAX_TEST_OUTPUT:
+        return text
+    kept = text[-MAX_TEST_OUTPUT:]
+    return (
+        f"[output truncated; showing last {MAX_TEST_OUTPUT} characters]\n{kept}"
+    )

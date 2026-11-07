@@ -43,3 +43,13 @@ def search_code(ctx: RunContextWrapper[RepoContext], query: str) -> str:
     Returns matching lines as path:line: text.
     """
     return repo.search_code(ctx.context.root, query)
+
+
+@function_tool
+def run_tests(ctx: RunContextWrapper[RepoContext]) -> str:
+    """Run the repository's pytest suite and return the printed output.
+
+    Use this when tests are failing or when you need to see whether tests pass.
+    There is no path argument; tests always run in the repository root.
+    """
+    return repo.run_tests(ctx.context.root)
