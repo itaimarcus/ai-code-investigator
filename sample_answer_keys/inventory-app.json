@@ -1,8 +1,19 @@
 {
-  "question": "Where is the Product class defined, and which files reference it?",
-  "must_cite": [
-    {"path": "inventory/products.py", "line": 5},
-    {"path": "inventory/pricing.py"},
-    {"path": "inventory/orders.py"}
+  "cases": [
+    {
+      "question": "Where is the Product class defined, and which files reference it?",
+      "must_cite": [
+        {"path": "inventory/products.py", "line": 5},
+        {"path": "inventory/pricing.py"},
+        {"path": "inventory/orders.py"}
+      ]
+    },
+    {
+      "question": "What discount do bulk orders get, and where is it applied?",
+      "must_cite": [
+        {"path": "inventory/pricing.py", "line": 4},
+        {"path": "inventory/orders.py"}
+      ]
+    }
   ]
 }

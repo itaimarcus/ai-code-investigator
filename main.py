@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from investigator.agent import build_agent
 from investigator.metrics import collect_metrics
-from investigator.score_report import load_answer_key, score_report
+from investigator.score_report import load_answer_keys, score_report
 from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
@@ -42,7 +42,11 @@ def main() -> None:
     print("\n--- Run metrics ---")
     print(json.dumps(asdict(metrics), indent=2))
 
-    score = score_report(result.final_output, load_answer_key(ANSWER_KEY))
+    keys = load_answer_keys(ANSWER_KEY)
+    key = next((item for item in keys if item.question == QUESTION), None)
+    if key is None:
+        raise RuntimeError(f"No answer key matches question: {QUESTION}")
+    score = score_report(result.final_output, key)
     print("\n--- Score ---")
     print(json.dumps(asdict(score), indent=2))
 

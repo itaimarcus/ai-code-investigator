@@ -23,13 +23,17 @@ class ScoreResult:
     failed: list[str]
 
 
-def load_answer_key(path: Path) -> AnswerKey:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _key_from_item(item: dict) -> AnswerKey:
     checks = [
-        CiteCheck(path=item["path"], line=item.get("line"))
-        for item in data["must_cite"]
+        CiteCheck(path=row["path"], line=row.get("line"))
+        for row in item["must_cite"]
     ]
-    return AnswerKey(question=data["question"], must_cite=checks)
+    return AnswerKey(question=item["question"], must_cite=checks)
+
+
+def load_answer_keys(path: Path) -> list[AnswerKey]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return [_key_from_item(item) for item in data["cases"]]
 
 
 def score_report(report: InvestigationReport, key: AnswerKey) -> ScoreResult:

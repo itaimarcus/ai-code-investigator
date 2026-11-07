@@ -10,12 +10,19 @@ Base your answers only on what the tools show you. If something is unclear, say 
 Put the conclusion in summary. Put file path and line range in citations, using only locations the tools showed you.
 """
 
+DEFAULT_TOOLS = [list_files, read_file, search_code]
 
-def build_agent(model: str) -> Agent[RepoContext]:
+
+def build_agent(
+    model: str,
+    *,
+    tools: list | None = None,
+    instructions: str | None = None,
+) -> Agent[RepoContext]:
     return Agent[RepoContext](
         name="Code Investigator",
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS if instructions is None else instructions,
         model=model,
         output_type=InvestigationReport,
-        tools=[list_files, read_file, search_code],
+        tools=DEFAULT_TOOLS if tools is None else tools,
     )
