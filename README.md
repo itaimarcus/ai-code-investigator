@@ -4,7 +4,7 @@ A Python project, using the **OpenAI Agents SDK**, that investigates software re
 
 Built incrementally. The goal is both a working system and a clear understanding of how agents, tools, and application code fit together.
 
-Private working notes (collaboration rules, prompt drafts, learning backlog) live in `ROADMAP.md`, which is git-ignored. This README is the committed project description.
+Private working notes (prompt drafts, learning backlog) live in `ROADMAP.md`, which is git-ignored. How to work with Itai is in that file, under **How to work with Itai**; `AGENTS.md` points new Cursor agents there. This README is the committed project description.
 
 ## Project goals
 
@@ -50,9 +50,9 @@ python main.py
 
 Three kinds of check. Every time we add behavior, we say which of these we used and what we compared.
 
-1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, cost math, report fields). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read.
+1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, cost math, report fields, `score_report`). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read.
 
-2. **Agent run + printed metrics.** `python main.py` calls the model. After the report it prints JSON: `requests` (model HTTP calls), `tool_calls` (our Python functions, also split by name), token counts, latency, estimated cost. Read the report yourself: you know the shop because we wrote it.
+2. **Agent run + printed metrics + score.** `python main.py` calls the model. After the report it prints JSON: `requests` (model HTTP calls), `tool_calls` (our Python functions, also split by name), token counts, latency, estimated cost. Then it prints a score: `passed` plus any missing citations from `sample_answer_keys/inventory-app.json`. You can still read the report yourself: you know the shop because we wrote it.
 
 3. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`; number of tool rows equals printed `tool_calls`; tool names and arguments; adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
 
@@ -62,19 +62,21 @@ A **request** is one model HTTP call. A **tool call** is our Python function. On
 
 ## Current status
 
-**M0 and M1 complete.** Next: M2 first evaluations.
+**M0 and M1 complete.** M2 started: a Product checklist and a printed pass/fail after each `python main.py` run. Next: compare variants.
 
-The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. The model does not choose that folder. Paths it names must stay inside it. It cannot edit.
+The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, and search for a literal, case-sensitive substring. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. Then a score against `sample_answer_keys/inventory-app.json`. The model does not choose that folder. Paths it names must stay inside it. It cannot edit.
 
 ```text
-main.py                       # config, run, print report + metrics
+main.py                       # config, run, print report + metrics + score
 investigator/agent.py         # name, instructions, model, tools, output type
 investigator/report.py        # InvestigationReport (summary + citations)
 investigator/tools.py         # RepoContext + @function_tool wrappers
 investigator/repo.py          # disk access (list, resolve, read, search); no SDK
 investigator/metrics.py       # tokens, latency, cost, tool-call counts
-tests/                        # pytest for repo.py, metrics, report (no OpenAI)
+investigator/score_report.py  # load answer key; score a report (no OpenAI)
+tests/                        # pytest for repo.py, metrics, report, scorer (no OpenAI)
 sample_repos/inventory-app/   # investigation target
+sample_answer_keys/inventory-app.json  # known facts for the Product question
 ```
 
 Current question in `main.py`: `Where is the Product class defined, and which files reference it?`
@@ -202,6 +204,6 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
 | **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-**Next implementation step: M2** first evaluations (scorecard; compare variants).
+**Next implementation step: M2** first comparison (with vs without `search_code`).
 
 Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.

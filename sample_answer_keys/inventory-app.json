@@ -1,0 +1,8 @@
+{
+  "question": "Where is the Product class defined, and which files reference it?",
+  "must_cite": [
+    {"path": "inventory/products.py", "line": 5},
+    {"path": "inventory/pricing.py"},
+    {"path": "inventory/orders.py"}
+  ]
+}

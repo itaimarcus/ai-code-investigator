@@ -12,7 +12,7 @@ def test_estimate_cost_unknown_model_returns_none() -> None:
     assert estimate_cost("not-a-model", 1000, 0, 0, 1000) is None
 
 
-def test_count_tool_calls_counts_asks_not_replies() -> None:
+def test_count_tool_calls() -> None:
     items = [
         SimpleNamespace(type="tool_call_item", tool_name="read_file"),
         SimpleNamespace(type="tool_call_output_item", tool_name="read_file"),

@@ -49,9 +49,7 @@ def read_file(
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except UnicodeDecodeError as exc:
-        raise RepoAccessError(
-            f"File is not valid UTF-8 text: {relative_path}"
-        ) from exc
+        raise RepoAccessError(f"File is not valid UTF-8 text: {relative_path}") from exc
     total = len(lines)
 
     start = 1 if start_line is None else start_line
@@ -130,9 +128,7 @@ def search_code(root: Path, query: str) -> str:
         )
     if truncated_files:
         listed = ", ".join(truncated_files)
-        notes.append(
-            f"more than {MAX_MATCHES_PER_FILE} matches in: {listed}"
-        )
+        notes.append(f"more than {MAX_MATCHES_PER_FILE} matches in: {listed}")
     if skipped:
         noun = "file" if skipped == 1 else "files"
         notes.append(

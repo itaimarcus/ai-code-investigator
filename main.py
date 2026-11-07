@@ -9,9 +9,11 @@ from dotenv import load_dotenv
 
 from investigator.agent import build_agent
 from investigator.metrics import collect_metrics
+from investigator.score_report import load_answer_key, score_report
 from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
+ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
 QUESTION = "Where is the Product class defined, and which files reference it?"
 
 
@@ -39,6 +41,10 @@ def main() -> None:
     metrics = collect_metrics(result, model, latency_seconds)
     print("\n--- Run metrics ---")
     print(json.dumps(asdict(metrics), indent=2))
+
+    score = score_report(result.final_output, load_answer_key(ANSWER_KEY))
+    print("\n--- Score ---")
+    print(json.dumps(asdict(score), indent=2))
 
 
 if __name__ == "__main__":
