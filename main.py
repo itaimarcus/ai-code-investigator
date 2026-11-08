@@ -33,7 +33,12 @@ def main() -> None:
     agent = build_agent(model)
 
     start = time.perf_counter()
-    result = Runner.run_sync(agent, QUESTION, context=RepoContext(root=REPO_ROOT))
+    result = Runner.run_sync(
+        agent,
+        QUESTION,
+        context=RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT),
+    )
+    )
     latency_seconds = time.perf_counter() - start
 
     print(json.dumps(result.final_output.model_dump(mode="json"), indent=2))

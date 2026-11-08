@@ -95,3 +95,32 @@ def test_search_code_notes_skipped_unreadable_file(tmp_path: Path) -> None:
     text = repo.search_code(tmp_path, "hello")
     assert "ok.py:1: hello" in text
     assert "1 file skipped (could not read); result may be incomplete." in text
+
+
+def _mini_repo(tmp_path: Path) -> Path:
+    source = tmp_path / "shop"
+    (source / "inventory").mkdir(parents=True)
+    (source / "inventory" / "app.py").write_text("x = 1\n")
+    (source / "README.md").write_text("shop\n")
+    cache = source / "inventory" / "__pycache__"
+    cache.mkdir()
+    (cache / "app.cpython-312.pyc").write_bytes(b"\x00")
+    return source
+
+
+def test_copy_tree_copies_files_and_skips_ignored_dirs(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    dest = tmp_path / "copy"
+    repo.copy_tree(source, dest)
+    assert repo.list_files(dest) == ["README.md", "inventory/app.py"]
+    assert repo.list_files(dest) == repo.list_files(source)
+    assert not (dest / "inventory" / "__pycache__").exists()
+
+
+def test_copy_tree_does_not_modify_source(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    dest = tmp_path / "copy"
+    repo.copy_tree(source, dest)
+    (dest / "only_in_copy.txt").write_text("new\n")
+    assert "only_in_copy.txt" not in repo.list_files(source)
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"

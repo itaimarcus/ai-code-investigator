@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,15 @@ def list_files(root: Path) -> list[str]:
         if path.is_file() and not _is_ignored(relative):
             files.append(relative.as_posix())
     return sorted(files)
+
+
+def copy_tree(source: Path, dest: Path) -> None:
+    """Copy one repository tree. Skip the same ignored directory names as list_files."""
+    shutil.copytree(source, dest, ignore=_copy_ignore)
+
+
+def _copy_ignore(_directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if name in IGNORED_DIRS}
 
 
 def resolve_in_repo(root: Path, relative_path: str) -> Path:

@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -5,16 +6,40 @@ from agents import RunContextWrapper, function_tool
 
 from investigator import repo
 
+DEFAULT_WORKSPACES_PARENT = Path(__file__).resolve().parent.parent / "workspaces"
+
 
 @dataclass
 class RepoContext:
-    root: Path
+    source_root: Path
+    workspace_root: Path
+    workspaces_parent: Path | None = None
+
+    def has_copy(self) -> bool:
+        return self.workspace_root.resolve() != self.source_root.resolve()
+
+
+def ensure_workspace(context: RepoContext) -> Path:
+    """Create a full copy of source_root under workspaces/<id>/ if none exists yet.
+
+    Not a tool. write_file (4.2) will call this. A second call returns the same path.
+    """
+    if context.has_copy():
+        return context.workspace_root
+    parent = context.workspaces_parent
+    if parent is None:
+        parent = DEFAULT_WORKSPACES_PARENT
+    parent.mkdir(parents=True, exist_ok=True)
+    dest = parent / uuid.uuid4().hex
+    repo.copy_tree(context.source_root, dest)
+    context.workspace_root = dest
+    return dest
 
 
 @function_tool
 def list_files(ctx: RunContextWrapper[RepoContext]) -> str:
     """List all files in the repository, as paths relative to the repository root."""
-    return "\n".join(repo.list_files(ctx.context.root))
+    return "\n".join(repo.list_files(ctx.context.workspace_root))
 
 
 @function_tool
@@ -31,7 +56,7 @@ def read_file(
     from the start or through the end of the file.
     """
     try:
-        return repo.read_file(ctx.context.root, path, start_line, end_line)
+        return repo.read_file(ctx.context.workspace_root, path, start_line, end_line)
     except repo.RepoAccessError as exc:
         return str(exc)
 
@@ -42,7 +67,7 @@ def search_code(ctx: RunContextWrapper[RepoContext], query: str) -> str:
 
     Returns matching lines as path:line: text.
     """
-    return repo.search_code(ctx.context.root, query)
+    return repo.search_code(ctx.context.workspace_root, query)
 
 
 @function_tool
@@ -52,4 +77,4 @@ def run_tests(ctx: RunContextWrapper[RepoContext]) -> str:
     Use this when tests are failing or when you need to see whether tests pass.
     There is no path argument; tests always run in the repository root.
     """
-    return repo.run_tests(ctx.context.root)
+    return repo.run_tests(ctx.context.workspace_root)

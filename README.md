@@ -138,7 +138,7 @@ Expected: `10.0` / 28 left; `100.0` / 8 left; `OutOfStockError`. An order of exa
 
 A **tool** is a Python function the model may ask us to run. `@function_tool` (Agents SDK; not LangChain `@tool`) builds the schema from the name, types, and docstring. The SDK runs the function and sends the return string back to the model. That repeat is the **agentic loop**.
 
-The folder is `RepoContext(root=...)` passed to `Runner.run_sync`. Tools receive it as `ctx: RunContextWrapper[RepoContext]`; `ctx.context.root` is the folder. The model never sees it (`list_files` schema has no parameters). `ctx` exists only while a tool runs; after the run, the same envelope is `result.context_wrapper`.
+The folder is `RepoContext(source_root=..., workspace_root=...)` passed to `Runner.run_sync`. At start both paths are the same (the shop). Tools receive `ctx: RunContextWrapper[RepoContext]` and use `ctx.context.workspace_root`. The model never sees it (`list_files` schema has no parameters). `ctx` exists only while a tool runs; after the run, the same envelope is `result.context_wrapper`.
 
 `repo.py` talks to the disk; `tools.py` only wraps it for the agent.
 
