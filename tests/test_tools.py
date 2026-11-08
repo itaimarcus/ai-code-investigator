@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from investigator import repo
-from investigator.tools import RepoContext, ensure_workspace
+from investigator.tools import RepoContext, apply_replace, ensure_workspace
 
 
 def _mini_repo(tmp_path: Path) -> Path:
@@ -61,3 +61,37 @@ def test_ensure_workspace_second_call_reuses_the_copy(tmp_path: Path) -> None:
     second = ensure_workspace(context)
     assert first == second
     assert list(parent.iterdir()) == [first]
+
+
+def test_apply_replace_copies_then_edits_only_the_workspace(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    message = apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    assert message == "Replaced one match in inventory/app.py."
+    assert context.has_copy()
+    assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 2\n"
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+
+
+def test_apply_replace_second_edit_reuses_the_copy(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    parent = tmp_path / "workspaces"
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    first_copy = context.workspace_root
+    apply_replace(context, "inventory/app.py", "x = 2", "x = 3")
+    assert context.workspace_root == first_copy
+    assert list(parent.iterdir()) == [first_copy]
+    assert (first_copy / "inventory" / "app.py").read_text() == "x = 3\n"
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+
+
+def test_apply_replace_returns_error_string_without_changing_files(
+    tmp_path: Path,
+) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    message = apply_replace(context, "inventory/app.py", "x = 99", "x = 2")
+    assert "No match for old_text" in message
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+    assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"

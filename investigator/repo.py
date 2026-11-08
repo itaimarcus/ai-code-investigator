@@ -94,6 +94,33 @@ def read_file(
     return text
 
 
+def replace_in_file(
+    root: Path, relative_path: str, old_text: str, new_text: str
+) -> str:
+    if not old_text:
+        raise RepoAccessError("old_text is empty.")
+    path = resolve_in_repo(root, relative_path)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RepoAccessError(
+            f"File is not valid UTF-8 text: {relative_path}"
+        ) from exc
+    matches = content.count(old_text)
+    if matches == 0:
+        raise RepoAccessError(
+            f"No match for old_text in {relative_path}. "
+            "Read the file and send the exact snippet to replace."
+        )
+    if matches > 1:
+        raise RepoAccessError(
+            f"old_text matched {matches} times in {relative_path}. "
+            "Send a longer snippet that appears exactly once."
+        )
+    path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
+    return f"Replaced one match in {relative_path}."
+
+
 def search_code(root: Path, query: str) -> str:
     if not query:
         return "Query is empty."

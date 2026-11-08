@@ -50,7 +50,7 @@ python main.py
 
 Four kinds of check. Every time we add behavior, we say which of these we used and what we compared.
 
-1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, `run_tests`, cost math, report fields, `load_answer_keys`, `score_report`). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read. Shop tests are not collected here.
+1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, `run_tests`, `replace_in_file`, workspace copy, cost math, report fields, `load_answer_keys`, `score_report`). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read. Shop tests are not collected here.
 
 2. **Shop pytest (no OpenAI).** From `sample_repos/inventory-app/`: `python -m pytest -q`. Expected: 2 passed, 2 failed. The two failures are the planted bulk-discount bug (quantity 20).
 
@@ -64,9 +64,9 @@ A **request** is one model HTTP call. A **tool call** is our Python function. On
 
 ## Current status
 
-**M0, M1, M2, and M3 complete.** M2 is a scorecard for questions listed in the JSON only (no exam loop, no prompt variants). M3 adds `run_tests` and a planted bug in the shop.
+**M0, M1, M2, and M3 complete. M4.1–4.2 in progress.** M2 is a scorecard for questions listed in the JSON only (no exam loop, no prompt variants). M3 adds `run_tests` and a planted bug in the shop. **4.2** adds `replace_in_file`: the first edit copies the shop into `workspaces/`; later tools in that run use the copy. The original shop is not written until a later approval step (4.4, not built).
 
-The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, search for a literal, case-sensitive substring, and run the shop’s pytest suite. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. If `QUESTION` matches a row in `sample_answer_keys/inventory-app.json`, a score prints after that. That file lists two questions (Product, and bulk discount); `python main.py` currently asks about the failing tests, so no score prints. The model does not choose the shop folder. Paths it names must stay inside it. It cannot edit.
+The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, search for a literal, case-sensitive substring, run the shop’s pytest suite, and replace one unique snippet in an existing file on the working copy. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. If `QUESTION` matches a row in `sample_answer_keys/inventory-app.json`, a score prints after that. That file lists two questions (Product, and bulk discount); `python main.py` currently asks about the failing tests, so no score prints. The model does not choose the shop folder. Paths it names must stay inside it.
 
 `build_agent(model)` uses default tools and instructions. Callers may pass `tools=` or `instructions=` later; `main.py` does not.
 
@@ -75,7 +75,7 @@ main.py                       # one question; print report + metrics; score if J
 investigator/agent.py         # name, default instructions/tools, model, output type
 investigator/report.py        # InvestigationReport (summary + citations)
 investigator/tools.py         # RepoContext + @function_tool wrappers
-investigator/repo.py          # disk access (list, resolve, read, search, run_tests); no SDK
+investigator/repo.py          # disk access (list, resolve, read, search, replace, run_tests); no SDK
 investigator/metrics.py       # tokens, latency, cost, tool-call counts
 investigator/score_report.py  # load_answer_keys; score one report vs one key
 tests/                        # pytest for repo.py, metrics, report, scorer (no OpenAI)
@@ -219,7 +219,7 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | Exploration | Custom list/read/search tools | Model pulls files on demand; we control path safety and size. |
 | Tool context | SDK `RunContextWrapper` + `RepoContext` | We choose the folder; the model cannot. |
 | File access | `repo.py` (disk) / `tools.py` (agent) | One place to harden later; tools stay thin. |
-| Editing | Working copy (from M4) | Original files stay unchanged until approval. |
+| Editing | Search-and-replace on a working copy (M4.2) | Unique snippet only; original files stay unchanged until approval (4.4). |
 | Approval | Explicit human approval (from M4) | Required, not optional. |
 | Orchestration | Agent-driven for `run_tests` | Model chooses the tool; repair style still open for M4. |
 | Evaluation | Scorecard for JSON-listed questions | Optional citation check; new prompts are judged by reading the report. |
@@ -245,6 +245,6 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
 | **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-**Next implementation step: M4** — working copy, bounded retries, diff, **required** human approval before changing original files. Do not start until Itai approves the design.
+**Next implementation step: M4.3–4.4** — bounded repair attempts, then diff and **required** human approval before changing original files.
 
 Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.

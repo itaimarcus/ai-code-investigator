@@ -5,6 +5,7 @@ from investigator.tools import (
     RepoContext,
     list_files,
     read_file,
+    replace_in_file,
     run_tests,
     search_code,
 )
@@ -16,7 +17,7 @@ Base your answers only on what the tools show you. If something is unclear, say 
 Put the conclusion in summary. Put file path and line range in citations, using only locations the tools showed you.
 """
 
-DEFAULT_TOOLS = [list_files, read_file, search_code, run_tests]
+DEFAULT_TOOLS = [list_files, read_file, search_code, run_tests, replace_in_file]
 
 
 def build_agent(

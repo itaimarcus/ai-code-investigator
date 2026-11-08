@@ -22,7 +22,7 @@ class RepoContext:
 def ensure_workspace(context: RepoContext) -> Path:
     """Create a full copy of source_root under workspaces/<id>/ if none exists yet.
 
-    Not a tool. write_file (4.2) will call this. A second call returns the same path.
+    Not a tool. replace_in_file calls this. A second call returns the same path.
     """
     if context.has_copy():
         return context.workspace_root
@@ -68,6 +68,37 @@ def search_code(ctx: RunContextWrapper[RepoContext], query: str) -> str:
     Returns matching lines as path:line: text.
     """
     return repo.search_code(ctx.context.workspace_root, query)
+
+
+def apply_replace(
+    context: RepoContext, path: str, old_text: str, new_text: str
+) -> str:
+    """Copy to a workspace if needed, then replace one unique snippet on that copy."""
+    ensure_workspace(context)
+    try:
+        return repo.replace_in_file(
+            context.workspace_root, path, old_text, new_text
+        )
+    except repo.RepoAccessError as exc:
+        return str(exc)
+
+
+@function_tool
+def replace_in_file(
+    ctx: RunContextWrapper[RepoContext],
+    path: str,
+    old_text: str,
+    new_text: str,
+) -> str:
+    """Replace exactly one occurrence of old_text with new_text in an existing file.
+
+    Paths are relative to the repository root, for example inventory/pricing.py.
+    old_text must match the file exactly, including spaces. If it is missing or
+    appears more than once, this returns an error; send a longer unique snippet.
+    The first call copies the repository to a workspace; later tools in this
+    run use that copy. The original folder is not written.
+    """
+    return apply_replace(ctx.context, path, old_text, new_text)
 
 
 @function_tool

@@ -14,7 +14,7 @@ from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
 ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
-QUESTION = "The tests are failing. What is wrong, and where?"
+QUESTION = "The tests are failing. What is wrong, and where? fix"
 
 
 def require_env(name: str) -> str:
@@ -38,7 +38,7 @@ def main() -> None:
         QUESTION,
         context=RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT),
     )
-    )
+
     latency_seconds = time.perf_counter() - start
 
     print(json.dumps(result.final_output.model_dump(mode="json"), indent=2))

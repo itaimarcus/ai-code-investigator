@@ -117,6 +117,40 @@ def test_copy_tree_copies_files_and_skips_ignored_dirs(tmp_path: Path) -> None:
     assert not (dest / "inventory" / "__pycache__").exists()
 
 
+def test_replace_in_file_replaces_a_unique_snippet(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\ny = 2\n")
+    result = repo.replace_in_file(tmp_path, "app.py", "x = 1", "x = 2")
+    assert result == "Replaced one match in app.py."
+    assert (tmp_path / "app.py").read_text() == "x = 2\ny = 2\n"
+
+
+def test_replace_in_file_rejects_empty_old_text(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\n")
+    with pytest.raises(repo.RepoAccessError, match="old_text is empty"):
+        repo.replace_in_file(tmp_path, "app.py", "", "x = 2")
+    assert (tmp_path / "app.py").read_text() == "x = 1\n"
+
+
+def test_replace_in_file_rejects_zero_matches(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\n")
+    with pytest.raises(repo.RepoAccessError, match="No match for old_text"):
+        repo.replace_in_file(tmp_path, "app.py", "x = 99", "x = 2")
+    assert (tmp_path / "app.py").read_text() == "x = 1\n"
+
+
+def test_replace_in_file_rejects_multiple_matches(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\nx = 1\n")
+    with pytest.raises(repo.RepoAccessError, match="matched 2 times"):
+        repo.replace_in_file(tmp_path, "app.py", "x = 1", "x = 2")
+    assert (tmp_path / "app.py").read_text() == "x = 1\nx = 1\n"
+
+
+def test_replace_in_file_rejects_path_outside_the_folder(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\n")
+    with pytest.raises(repo.RepoAccessError, match="outside the repository"):
+        repo.replace_in_file(tmp_path, "../app.py", "x = 1", "x = 2")
+
+
 def test_copy_tree_does_not_modify_source(tmp_path: Path) -> None:
     source = _mini_repo(tmp_path)
     dest = tmp_path / "copy"
