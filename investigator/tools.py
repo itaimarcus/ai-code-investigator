@@ -7,6 +7,7 @@ from agents import RunContextWrapper, function_tool
 from investigator import repo
 
 DEFAULT_WORKSPACES_PARENT = Path(__file__).resolve().parent.parent / "workspaces"
+MAX_REPLACE_ATTEMPTS = 8
 
 
 @dataclass
@@ -14,6 +15,7 @@ class RepoContext:
     source_root: Path
     workspace_root: Path
     workspaces_parent: Path | None = None
+    replace_attempts: int = 0
 
     def has_copy(self) -> bool:
         return self.workspace_root.resolve() != self.source_root.resolve()
@@ -74,6 +76,12 @@ def apply_replace(
     context: RepoContext, path: str, old_text: str, new_text: str
 ) -> str:
     """Copy to a workspace if needed, then replace one unique snippet on that copy."""
+    if context.replace_attempts >= MAX_REPLACE_ATTEMPTS:
+        return (
+            f"Replace limit reached ({MAX_REPLACE_ATTEMPTS}) for this run. "
+            "Do not edit further; report what you tried."
+        )
+    context.replace_attempts += 1
     ensure_workspace(context)
     try:
         return repo.replace_in_file(
@@ -96,7 +104,8 @@ def replace_in_file(
     old_text must match the file exactly, including spaces. If it is missing or
     appears more than once, this returns an error; send a longer unique snippet.
     The first call copies the repository to a workspace; later tools in this
-    run use that copy. The original folder is not written.
+    run use that copy. The original folder is not written. Python refuses
+    further replaces after 8 calls in this run.
     """
     return apply_replace(ctx.context, path, old_text, new_text)
 

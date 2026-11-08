@@ -64,9 +64,9 @@ A **request** is one model HTTP call. A **tool call** is our Python function. On
 
 ## Current status
 
-**M0, M1, M2, and M3 complete. M4.1–4.2 in progress.** M2 is a scorecard for questions listed in the JSON only (no exam loop, no prompt variants). M3 adds `run_tests` and a planted bug in the shop. **4.2** adds `replace_in_file`: the first edit copies the shop into `workspaces/`; later tools in that run use the copy. The original shop is not written until a later approval step (4.4, not built).
+**M0–M3 complete. M4.1–4.3 in progress (4.4 approval not built).** The agent can investigate the sample shop, run its tests, and try a fix on a **copy** (at most **8** `replace_in_file` calls per `python main.py`). The original shop is not written until 4.4.
 
-The agent investigates `sample_repos/inventory-app/` only. It can list files, read them, search for a literal, case-sensitive substring, run the shop’s pytest suite, and replace one unique snippet in an existing file on the working copy. The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. If `QUESTION` matches a row in `sample_answer_keys/inventory-app.json`, a score prints after that. That file lists two questions (Product, and bulk discount); `python main.py` currently asks about the failing tests, so no score prints. The model does not choose the shop folder. Paths it names must stay inside it.
+The printed result is a report with a short summary plus file and line citations. Metrics include how many tools ran, by name. If `QUESTION` matches a row in `sample_answer_keys/inventory-app.json`, a score prints after that. The current question asks for a **fix**; that string is not in the JSON, so no score prints. The model does not choose the shop folder. Paths it names must stay inside it.
 
 `build_agent(model)` uses default tools and instructions. Callers may pass `tools=` or `instructions=` later; `main.py` does not.
 
@@ -83,9 +83,9 @@ sample_repos/inventory-app/   # investigation target (agent may read); planted b
 sample_answer_keys/inventory-app.json  # cases: Product + bulk discount (agent must not)
 ```
 
-Current question in `main.py`: `The tests are failing. What is wrong, and where?`
+Current question in `main.py`: find the failing tests, fix them on the working copy with `replace_in_file`, re-run tests until they pass, then summarize.
 
-That string is not in the JSON, so `python main.py` prints report + metrics and no score block. Read the report yourself. Put the Product question back if you want the citation score again.
+That string is not in the JSON, so `python main.py` prints report + metrics and no score block. Read the report yourself. Put the Product question back if you want the citation score again. After a fix run, check `sample_repos/inventory-app/inventory/pricing.py`: it should still use `>` until you approve in 4.4. The copy under `workspaces/` may already have `>=`.
 
 ## What we built and how we checked it
 
@@ -204,6 +204,12 @@ The agent is **agent-driven**: it calls `run_tests` when the question needs it. 
 
 **Checked:** `pytest` from the project root; `python -m pytest -q` from `sample_repos/inventory-app/` shows 2 passed, 2 failed; `python main.py` with the failing-test question — agent called `run_tests`, cited `inventory/pricing.py`, explained `>` vs `>=` (no JSON score).
 
+### M4.1–4.3 — Workspace, replace, one-run repair
+
+The first `replace_in_file` copies the shop into `workspaces/<id>/`. Later tools in that run use the copy. `old_text` must appear exactly once. Python allows at most 8 `replace_in_file` calls per `python main.py`; the 9th returns an error string and does not write. Instructions tell the model to re-run tests after edits and stop when they pass. Approval (copy back to the original shop) is 4.4.
+
+**Checked (no OpenAI):** `pytest` from the project root, including a 9th replace refused.
+
 ## Architecture and design decisions
 
 Guiding rule: **the agent reasons and proposes; Python executes and enforces boundaries.**
@@ -221,7 +227,7 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | File access | `repo.py` (disk) / `tools.py` (agent) | One place to harden later; tools stay thin. |
 | Editing | Search-and-replace on a working copy (M4.2) | Unique snippet only; original files stay unchanged until approval (4.4). |
 | Approval | Explicit human approval (from M4) | Required, not optional. |
-| Orchestration | Agent-driven for `run_tests` | Model chooses the tool; repair style still open for M4. |
+| Orchestration | Agent-driven tests and repair; Python caps replaces at 8 per run | Model loops; Python enforces the fuse. |
 | Evaluation | Scorecard for JSON-listed questions | Optional citation check; new prompts are judged by reading the report. |
 | Observability | Tokens, estimated cost, latency, traces | Cost uses OpenAI list prices; traces confirm usage. |
 | Integrations | MCP, GitHub, multi-agent, hosted tools later | When they enable a capability or a fair experiment. |
@@ -245,6 +251,6 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 | **M6 — Multi-agent** | Handoffs vs agent-as-tool vs single agent | Compare with the eval suite |
 | **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
 
-**Next implementation step: M4.3–4.4** — bounded repair attempts, then diff and **required** human approval before changing original files.
+**Next implementation step: M4.4** — after the agent run, diff, **required** human approval, then copy back or discard the workspace.
 
 Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.

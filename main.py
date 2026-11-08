@@ -14,7 +14,11 @@ from investigator.tools import RepoContext
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
 ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
-QUESTION = "The tests are failing. What is wrong, and where? fix"
+QUESTION = (
+    "The tests are failing. Find the cause, fix it on the working copy "
+    "using replace_in_file, and re-run tests until they pass. Then "
+    "summarize what you changed and where."
+)
 
 
 def require_env(name: str) -> str:

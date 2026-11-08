@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from investigator import repo
-from investigator.tools import RepoContext, apply_replace, ensure_workspace
+from investigator.tools import (
+    MAX_REPLACE_ATTEMPTS,
+    RepoContext,
+    apply_replace,
+    ensure_workspace,
+)
 
 
 def _mini_repo(tmp_path: Path) -> Path:
@@ -93,5 +98,18 @@ def test_apply_replace_returns_error_string_without_changing_files(
     context = _context(source, tmp_path)
     message = apply_replace(context, "inventory/app.py", "x = 99", "x = 2")
     assert "No match for old_text" in message
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+    assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"
+
+
+def test_ninth_replace_is_refused_and_does_not_write(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    for _ in range(MAX_REPLACE_ATTEMPTS):
+        message = apply_replace(context, "inventory/app.py", "missing", "x")
+        assert "No match for old_text" in message
+    ninth = apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    assert "Replace limit reached (8)" in ninth
+    assert context.replace_attempts == MAX_REPLACE_ATTEMPTS
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
     assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"
