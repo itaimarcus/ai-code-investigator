@@ -1,3 +1,5 @@
+import difflib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +27,15 @@ def list_files(root: Path) -> list[str]:
         if path.is_file() and not _is_ignored(relative):
             files.append(relative.as_posix())
     return sorted(files)
+
+
+def copy_tree(source: Path, dest: Path) -> None:
+    """Copy one repository tree. Skip the same ignored directory names as list_files."""
+    shutil.copytree(source, dest, ignore=_copy_ignore)
+
+
+def _copy_ignore(_directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if name in IGNORED_DIRS}
 
 
 def resolve_in_repo(root: Path, relative_path: str) -> Path:
@@ -82,6 +93,62 @@ def read_file(
             "Request another range to continue.]"
         )
     return text
+
+
+def replace_in_file(
+    root: Path, relative_path: str, old_text: str, new_text: str
+) -> str:
+    if not old_text:
+        raise RepoAccessError("old_text is empty.")
+    path = resolve_in_repo(root, relative_path)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RepoAccessError(
+            f"File is not valid UTF-8 text: {relative_path}"
+        ) from exc
+    matches = content.count(old_text)
+    if matches == 0:
+        raise RepoAccessError(
+            f"No match for old_text in {relative_path}. "
+            "Read the file and send the exact snippet to replace."
+        )
+    if matches > 1:
+        raise RepoAccessError(
+            f"old_text matched {matches} times in {relative_path}. "
+            "Send a longer snippet that appears exactly once."
+        )
+    path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
+    return f"Replaced one match in {relative_path}."
+
+
+def unified_diff(
+    source_root: Path, workspace_root: Path, relative_path: str
+) -> str:
+    original = resolve_in_repo(source_root, relative_path)
+    edited = resolve_in_repo(workspace_root, relative_path)
+    old_lines = original.read_text(encoding="utf-8").splitlines(keepends=True)
+    new_lines = edited.read_text(encoding="utf-8").splitlines(keepends=True)
+    return "".join(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{relative_path}",
+            tofile=f"b/{relative_path}",
+        )
+    )
+
+
+def copy_file_from_workspace(
+    source_root: Path, workspace_root: Path, relative_path: str
+) -> None:
+    edited = resolve_in_repo(workspace_root, relative_path)
+    original = resolve_in_repo(source_root, relative_path)
+    shutil.copy2(edited, original)
+
+
+def delete_tree(path: Path) -> None:
+    shutil.rmtree(path)
 
 
 def search_code(root: Path, query: str) -> str:
