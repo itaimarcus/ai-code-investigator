@@ -48,7 +48,7 @@ python main.py
 
 ## How we verify
 
-Four kinds of check. Every time we add behavior, we say which of these we used and what we compared.
+Five kinds of check. Every time we add behavior, we say which of these we used and what we compared.
 
 1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, `run_tests`, `replace_in_file`, workspace copy, apply/discard, cost math, report fields, `load_answer_keys`, `score_report`). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read. Shop tests are not collected here.
 
@@ -57,6 +57,8 @@ Four kinds of check. Every time we add behavior, we say which of these we used a
 3. **Agent run + printed metrics + optional score + `y`/`n`.** `python main.py` calls the model **once** (whatever `QUESTION` is in that file). After the report it prints JSON: `requests` (model HTTP calls), `tool_calls` (our Python functions, also split by name), token counts, latency, estimated cost. If the agent successfully edited the copy, it prints a diff of those files and asks `y/n`. If `QUESTION` matches a row in `sample_answer_keys/inventory-app.json`, it also prints a score (`passed` plus any missing citations). The current fix question is not in the JSON, so no score prints.
 
 4. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`; number of tool rows equals printed `tool_calls`; tool names and arguments; adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
+
+5. **GitHub Actions CI (no OpenAI).** On every push to `main` and on every pull request into `main`, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same project-root `pytest` as item 1 (Python 3.12, `requirements.txt`, no API key). Open the repo **Actions** tab to see pass/fail and logs. Future feature branches can open a PR to get CI before merge.
 
 **Cost** is an **estimate**, not a bill. Token counts come from `result.context_wrapper.usage`. Prices come from [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and are stored in `investigator/metrics.py` for `gpt-6-luna` only (USD per 1M tokens: input $0.10, cached input $0.01, 30-minute cache write $0.125, output $0.50). Reasoning tokens are already inside `output_tokens` and use the output price. Unknown models still run and print `estimated_cost_usd: null`.
 
@@ -257,4 +259,4 @@ Guiding rule: **the agent reasons and proposes; Python executes and enforces bou
 
 **Next:** **M5** sessions (more than one user message, keep history; later: `n` then keep editing the same copy). M4 leftover: CLI repo path (old 4.0), clickable citations, create-new-file, Git branch as an apply option (see ROADMAP). Leftover `workspaces/` from before 4.4: `rm -rf workspaces`.
 
-Deferred until needed: Ruff, GitHub Actions CI, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.
+Deferred until needed: Ruff, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.
