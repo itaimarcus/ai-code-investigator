@@ -1,5 +1,5 @@
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from agents import RunContextWrapper, function_tool
@@ -16,6 +16,7 @@ class RepoContext:
     workspace_root: Path
     workspaces_parent: Path | None = None
     replace_attempts: int = 0
+    replaced_paths: set[str] = field(default_factory=set)
 
     def has_copy(self) -> bool:
         return self.workspace_root.resolve() != self.source_root.resolve()
@@ -84,11 +85,38 @@ def apply_replace(
     context.replace_attempts += 1
     ensure_workspace(context)
     try:
-        return repo.replace_in_file(
+        result = repo.replace_in_file(
             context.workspace_root, path, old_text, new_text
         )
     except repo.RepoAccessError as exc:
         return str(exc)
+    context.replaced_paths.add(Path(path).as_posix())
+    return result
+
+
+def proposed_changes_text(context: RepoContext) -> str:
+    if not context.replaced_paths:
+        return "No successful file changes."
+    blocks = ["--- Proposed changes (copy vs original) ---"]
+    for relative_path in sorted(context.replaced_paths):
+        blocks.append(
+            repo.unified_diff(
+                context.source_root, context.workspace_root, relative_path
+            )
+        )
+    return "\n".join(blocks)
+
+
+def finish_workspace(context: RepoContext, apply: bool) -> None:
+    if not context.has_copy():
+        return
+    if apply:
+        for relative_path in sorted(context.replaced_paths):
+            repo.copy_file_from_workspace(
+                context.source_root, context.workspace_root, relative_path
+            )
+    repo.delete_tree(context.workspace_root)
+    context.workspace_root = context.source_root
 
 
 @function_tool

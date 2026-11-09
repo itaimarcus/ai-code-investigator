@@ -6,6 +6,8 @@ from investigator.tools import (
     RepoContext,
     apply_replace,
     ensure_workspace,
+    finish_workspace,
+    proposed_changes_text,
 )
 
 
@@ -74,6 +76,7 @@ def test_apply_replace_copies_then_edits_only_the_workspace(tmp_path: Path) -> N
     message = apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
     assert message == "Replaced one match in inventory/app.py."
     assert context.has_copy()
+    assert context.replaced_paths == {"inventory/app.py"}
     assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 2\n"
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
 
@@ -89,6 +92,7 @@ def test_apply_replace_second_edit_reuses_the_copy(tmp_path: Path) -> None:
     assert list(parent.iterdir()) == [first_copy]
     assert (first_copy / "inventory" / "app.py").read_text() == "x = 3\n"
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+    assert context.replaced_paths == {"inventory/app.py"}
 
 
 def test_apply_replace_returns_error_string_without_changing_files(
@@ -98,6 +102,7 @@ def test_apply_replace_returns_error_string_without_changing_files(
     context = _context(source, tmp_path)
     message = apply_replace(context, "inventory/app.py", "x = 99", "x = 2")
     assert "No match for old_text" in message
+    assert context.replaced_paths == set()
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
     assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"
 
@@ -111,5 +116,56 @@ def test_ninth_replace_is_refused_and_does_not_write(tmp_path: Path) -> None:
     ninth = apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
     assert "Replace limit reached (8)" in ninth
     assert context.replace_attempts == MAX_REPLACE_ATTEMPTS
+    assert context.replaced_paths == set()
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
     assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"
+
+
+def test_finish_workspace_apply_copies_then_deletes_the_copy(
+    tmp_path: Path,
+) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    copy = context.workspace_root
+    finish_workspace(context, apply=True)
+    assert (source / "inventory" / "app.py").read_text() == "x = 2\n"
+    assert not copy.exists()
+    assert not context.has_copy()
+
+
+def test_finish_workspace_discard_deletes_copy_and_leaves_source(
+    tmp_path: Path,
+) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    copy = context.workspace_root
+    finish_workspace(context, apply=False)
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+    assert not copy.exists()
+    assert not context.has_copy()
+
+
+def test_failed_replace_copy_is_discarded_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "missing", "x")
+    assert context.has_copy()
+    assert context.replaced_paths == set()
+    copy = context.workspace_root
+    finish_workspace(context, apply=True)
+    assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
+    assert not copy.exists()
+
+
+def test_proposed_changes_text_includes_diff(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    text = proposed_changes_text(context)
+    assert "inventory/app.py" in text
+    assert "-x = 1" in text
+    assert "+x = 2" in text

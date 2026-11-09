@@ -1,3 +1,4 @@
+import difflib
 import shutil
 import subprocess
 import sys
@@ -119,6 +120,35 @@ def replace_in_file(
         )
     path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
     return f"Replaced one match in {relative_path}."
+
+
+def unified_diff(
+    source_root: Path, workspace_root: Path, relative_path: str
+) -> str:
+    original = resolve_in_repo(source_root, relative_path)
+    edited = resolve_in_repo(workspace_root, relative_path)
+    old_lines = original.read_text(encoding="utf-8").splitlines(keepends=True)
+    new_lines = edited.read_text(encoding="utf-8").splitlines(keepends=True)
+    return "".join(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{relative_path}",
+            tofile=f"b/{relative_path}",
+        )
+    )
+
+
+def copy_file_from_workspace(
+    source_root: Path, workspace_root: Path, relative_path: str
+) -> None:
+    edited = resolve_in_repo(workspace_root, relative_path)
+    original = resolve_in_repo(source_root, relative_path)
+    shutil.copy2(edited, original)
+
+
+def delete_tree(path: Path) -> None:
+    shutil.rmtree(path)
 
 
 def search_code(root: Path, query: str) -> str:

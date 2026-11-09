@@ -151,6 +151,37 @@ def test_replace_in_file_rejects_path_outside_the_folder(tmp_path: Path) -> None
         repo.replace_in_file(tmp_path, "../app.py", "x = 1", "x = 2")
 
 
+def test_unified_diff_shows_the_changed_line(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    work = tmp_path / "work"
+    source.mkdir()
+    work.mkdir()
+    (source / "app.py").write_text("x = 1\n")
+    (work / "app.py").write_text("x = 2\n")
+    text = repo.unified_diff(source, work, "app.py")
+    assert "-x = 1" in text
+    assert "+x = 2" in text
+
+
+def test_copy_file_from_workspace_overwrites_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    work = tmp_path / "work"
+    source.mkdir()
+    work.mkdir()
+    (source / "app.py").write_text("x = 1\n")
+    (work / "app.py").write_text("x = 2\n")
+    repo.copy_file_from_workspace(source, work, "app.py")
+    assert (source / "app.py").read_text() == "x = 2\n"
+
+
+def test_delete_tree_removes_the_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "copy"
+    folder.mkdir()
+    (folder / "a.txt").write_text("x\n")
+    repo.delete_tree(folder)
+    assert not folder.exists()
+
+
 def test_copy_tree_does_not_modify_source(tmp_path: Path) -> None:
     source = _mini_repo(tmp_path)
     dest = tmp_path / "copy"
