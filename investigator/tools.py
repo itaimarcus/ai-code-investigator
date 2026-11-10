@@ -107,6 +107,17 @@ def proposed_changes_text(context: RepoContext) -> str:
     return "\n".join(blocks)
 
 
+def start_run(context: RepoContext) -> None:
+    """Zero replace bookkeeping so the cap of 8 applies to this run only.
+
+    Not a tool. main.py calls this before each Runner.run_sync.
+    Does not delete a workspace copy. finish_workspace does that after the run,
+    and the diff is printed from replaced_paths before that delete.
+    """
+    context.replace_attempts = 0
+    context.replaced_paths = set()
+
+
 def finish_workspace(context: RepoContext, apply: bool) -> None:
     if not context.has_copy():
         return
