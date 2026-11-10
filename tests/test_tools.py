@@ -8,6 +8,7 @@ from investigator.tools import (
     ensure_workspace,
     finish_workspace,
     proposed_changes_text,
+    start_run,
 )
 
 
@@ -119,6 +120,21 @@ def test_ninth_replace_is_refused_and_does_not_write(tmp_path: Path) -> None:
     assert context.replaced_paths == set()
     assert (source / "inventory" / "app.py").read_text() == "x = 1\n"
     assert (context.workspace_root / "inventory" / "app.py").read_text() == "x = 1\n"
+
+
+def test_start_run_clears_replace_attempts_and_paths(tmp_path: Path) -> None:
+    source = _mini_repo(tmp_path)
+    context = _context(source, tmp_path)
+    apply_replace(context, "inventory/app.py", "x = 1", "x = 2")
+    copy = context.workspace_root
+    assert context.replace_attempts == 1
+    assert context.replaced_paths == {"inventory/app.py"}
+    start_run(context)
+    assert context.replace_attempts == 0
+    assert context.replaced_paths == set()
+    assert context.has_copy()
+    assert context.workspace_root == copy
+    assert (copy / "inventory" / "app.py").read_text() == "x = 2\n"
 
 
 def test_finish_workspace_apply_copies_then_deletes_the_copy(
