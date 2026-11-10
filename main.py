@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -8,7 +9,7 @@ from pathlib import Path
 from agents import Runner, SQLiteSession
 from dotenv import load_dotenv
 
-from investigator.agent import build_agent
+from investigator.agent import build_agent, build_lead
 from investigator.metrics import collect_metrics
 from investigator.score_report import AnswerKey, load_answer_keys, score_report
 from investigator.tools import (
@@ -28,6 +29,25 @@ APPLIED_NOTE = "Applied these changes to the original project."
 DISCARDED_NOTE = "Discarded the working copy. The original project is unchanged."
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Investigate a software repository.")
+    parser.add_argument(
+        "--single",
+        action="store_true",
+        help=(
+            "Use one agent with all five repo tools instead of a lead "
+            "that delegates to specialists."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def choose_agent(model: str, *, single: bool):
+    if single:
+        return build_agent(model)
+    return build_lead(model)
+
+
 def require_env(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -37,9 +57,9 @@ def require_env(name: str) -> str:
 
 def ask_apply() -> bool:
     while True:
-        answer = input(
-            "Apply these changes to the original project? y/n\n"
-        ).strip().lower()
+        answer = (
+            input("Apply these changes to the original project? y/n\n").strip().lower()
+        )
         if answer == "y":
             return True
         if answer == "n":
@@ -60,9 +80,7 @@ def remember_approval(session: SQLiteSession, applied: bool) -> None:
     turn because this writes that string into the session.
     """
     asyncio.run(
-        session.add_items(
-            [{"role": "developer", "content": approval_note(applied)}]
-        )
+        session.add_items([{"role": "developer", "content": approval_note(applied)}])
     )
 
 
@@ -121,12 +139,13 @@ def run_turn(
 
 
 def main() -> None:
+    args = parse_args()
     load_dotenv()
 
     require_env("OPENAI_API_KEY")
     model = require_env("OPENAI_MODEL")
 
-    agent = build_agent(model)
+    agent = choose_agent(model, single=args.single)
     context = RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT)
     session = SQLiteSession("inventory-app")
     keys = load_answer_keys(ANSWER_KEY)
