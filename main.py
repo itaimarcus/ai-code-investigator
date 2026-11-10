@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -8,9 +9,8 @@ from pathlib import Path
 from agents import Runner, SQLiteSession
 from dotenv import load_dotenv
 
-from investigator.agent import build_agent
+from investigator.agent import build_agent, build_lead
 from investigator.metrics import collect_metrics
-from investigator.score_report import AnswerKey, load_answer_keys, score_report
 from investigator.tools import (
     RepoContext,
     finish_workspace,
@@ -19,13 +19,31 @@ from investigator.tools import (
 )
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
-ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
 QUESTION = (
     "What does this repository implement? "
     "Name the main types and functions, and cite the file and lines where each is defined."
 )
 APPLIED_NOTE = "Applied these changes to the original project."
 DISCARDED_NOTE = "Discarded the working copy. The original project is unchanged."
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Investigate a software repository.")
+    parser.add_argument(
+        "--single",
+        action="store_true",
+        help=(
+            "Use one agent with all five repo tools instead of a lead "
+            "that delegates to specialists."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def choose_agent(model: str, *, single: bool):
+    if single:
+        return build_agent(model)
+    return build_lead(model)
 
 
 def require_env(name: str) -> str:
@@ -37,9 +55,9 @@ def require_env(name: str) -> str:
 
 def ask_apply() -> bool:
     while True:
-        answer = input(
-            "Apply these changes to the original project? y/n\n"
-        ).strip().lower()
+        answer = (
+            input("Apply these changes to the original project? y/n\n").strip().lower()
+        )
         if answer == "y":
             return True
         if answer == "n":
@@ -60,9 +78,7 @@ def remember_approval(session: SQLiteSession, applied: bool) -> None:
     turn because this writes that string into the session.
     """
     asyncio.run(
-        session.add_items(
-            [{"role": "developer", "content": approval_note(applied)}]
-        )
+        session.add_items([{"role": "developer", "content": approval_note(applied)}])
     )
 
 
@@ -97,14 +113,13 @@ def run_turn(
     session: SQLiteSession,
     message: str,
     model: str,
-    keys: list[AnswerKey],
 ) -> None:
     start_run(context)
     start = time.perf_counter()
     result = Runner.run_sync(agent, message, context=context, session=session)
     latency_seconds = time.perf_counter() - start
 
-    print(json.dumps(result.final_output.model_dump(mode="json"), indent=2))
+    print(result.final_output)
 
     metrics = collect_metrics(result, model, latency_seconds)
     print("\n--- Run metrics ---")
@@ -112,28 +127,21 @@ def run_turn(
 
     review_workspace(context, session)
 
-    key = next((item for item in keys if item.question == message), None)
-    if key is None:
-        return
-    score = score_report(result.final_output, key)
-    print("\n--- Score ---")
-    print(json.dumps(asdict(score), indent=2))
-
 
 def main() -> None:
+    args = parse_args()
     load_dotenv()
 
     require_env("OPENAI_API_KEY")
     model = require_env("OPENAI_MODEL")
 
-    agent = build_agent(model)
+    agent = choose_agent(model, single=args.single)
     context = RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT)
     session = SQLiteSession("inventory-app")
-    keys = load_answer_keys(ANSWER_KEY)
 
     message: str | None = QUESTION
     while message is not None:
-        run_turn(agent, context, session, message, model, keys)
+        run_turn(agent, context, session, message, model)
         message = read_next_message()
 
 
