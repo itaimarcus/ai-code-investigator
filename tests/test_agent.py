@@ -9,7 +9,12 @@ from investigator.agent import (
     build_repairer,
     specialist_report_text,
 )
-from investigator.report import FileReference, InvestigationReport
+from investigator.report import (
+    FileReference,
+    InvestigationReport,
+    RepairReport,
+    RunCounts,
+)
 from main import choose_agent
 
 MODEL = "test-model"
@@ -44,6 +49,24 @@ def test_specialist_report_text_is_json() -> None:
     }
 
 
+def test_specialist_report_text_dumps_repair_report() -> None:
+    report = RepairReport(
+        summary="Fixed the threshold.",
+        files_changed=["inventory/pricing.py"],
+        tests_before=RunCounts(passed=2, total=4),
+        tests_after=RunCounts(passed=4, total=4),
+        tests_failed_names=["test_bulk_discount_at_threshold"],
+        success=True,
+    )
+    text = asyncio.run(specialist_report_text(SimpleNamespace(final_output=report)))
+    payload = json.loads(text)
+    assert payload["files_changed"] == ["inventory/pricing.py"]
+    assert payload["tests_failed_names"] == ["test_bulk_discount_at_threshold"]
+    assert payload["tests_before"] == {"passed": 2, "total": 4}
+    assert payload["tests_after"] == {"passed": 4, "total": 4}
+    assert payload["success"] is True
+
+
 def test_specialist_report_text_falls_back_to_str() -> None:
     text = asyncio.run(
         specialist_report_text(SimpleNamespace(final_output="plain text"))
@@ -60,11 +83,19 @@ def test_investigator_tools_are_read_only() -> None:
 
 
 def test_repairer_tools() -> None:
-    assert _tool_names(build_repairer(MODEL)) == [
+    repairer = build_repairer(MODEL)
+    assert _tool_names(repairer) == [
         "read_file",
         "run_tests",
         "replace_in_file",
     ]
+    assert repairer.output_type is RepairReport
+
+
+def test_lead_and_single_have_no_output_type() -> None:
+    assert build_lead(MODEL).output_type is None
+    assert build_agent(MODEL).output_type is None
+    assert build_investigator(MODEL).output_type is InvestigationReport
 
 
 def test_lead_tools_are_the_two_specialists() -> None:

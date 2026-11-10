@@ -2,7 +2,7 @@ import json
 
 from agents import Agent, RunResult
 
-from investigator.report import InvestigationReport
+from investigator.report import InvestigationReport, RepairReport
 from investigator.tools import (
     RepoContext,
     list_files,
@@ -16,7 +16,6 @@ INSTRUCTIONS = """\
 You are a code investigator: an assistant that helps developers understand a software repository.
 Use the available tools to look at the repository before answering.
 Base your answers only on what the tools show you. If something is unclear, say so once, briefly, instead of hedging in every sentence.
-Put the conclusion in summary. Put file path and line range in citations, using only locations the tools showed you.
 When the user wants failing tests fixed: call run_tests, then replace_in_file on the working copy, then run_tests again. Repeat until the tests pass or replace_in_file reports that the replace limit was reached. Stop editing once tests pass. Edits apply to a copy; do not claim the original project files were updated.
 """
 
@@ -24,13 +23,12 @@ INVESTIGATOR_INSTRUCTIONS = """\
 You are a code investigator: an assistant that helps developers understand a software repository.
 Use the available tools to look at the repository before answering.
 Base your answers only on what the tools show you. If something is unclear, say so once, briefly, instead of hedging in every sentence.
-Put the conclusion in summary. Put file path and line range in citations, using only locations the tools showed you.
+Cite only locations the tools showed you.
 Do not edit files.
 """
 
 REPAIRER_INSTRUCTIONS = """\
 When the user wants failing tests fixed: call run_tests, then replace_in_file on the working copy, then run_tests again. Repeat until the tests pass or replace_in_file reports that the replace limit was reached. Stop editing once tests pass. Edits apply to a copy; do not claim the original project files were updated.
-Put the conclusion in summary. Put file path and line range in citations, using only locations the tools showed you.
 """
 
 LEAD_INSTRUCTIONS = """\
@@ -38,7 +36,7 @@ You answer the user. You cannot read or edit the repository yourself.
 Call investigate_repository to inspect or explain code.
 Call repair_repository to fix failing tests.
 If a message needs both jobs, call both.
-Base the report only on what those tools return. Put the conclusion in summary. Put file path and line range in citations, using only locations they showed you.
+Base the answer only on what those tools return. Write ordinary text. Do not claim the original project files were updated.
 """
 
 DEFAULT_TOOLS = [list_files, read_file, search_code, run_tests, replace_in_file]
@@ -56,7 +54,6 @@ def build_agent(
         name="Code Investigator",
         instructions=INSTRUCTIONS if instructions is None else instructions,
         model=model,
-        output_type=InvestigationReport,
         tools=DEFAULT_TOOLS if tools is None else tools,
     )
 
@@ -76,15 +73,15 @@ def build_repairer(model: str) -> Agent[RepoContext]:
         name="Repairer",
         instructions=REPAIRER_INSTRUCTIONS,
         model=model,
-        output_type=InvestigationReport,
+        output_type=RepairReport,
         tools=REPAIRER_TOOLS,
     )
 
 
 async def specialist_report_text(result: RunResult) -> str:
-    """Turn the specialist's InvestigationReport object into tool-result text."""
+    """Turn the specialist's report object into tool-result text."""
     report = result.final_output
-    if isinstance(report, InvestigationReport):
+    if isinstance(report, (InvestigationReport, RepairReport)):
         return json.dumps(report.model_dump(mode="json"))
     return str(report)
 
@@ -96,7 +93,6 @@ def build_lead(model: str) -> Agent[RepoContext]:
         name="Lead",
         instructions=LEAD_INSTRUCTIONS,
         model=model,
-        output_type=InvestigationReport,
         tools=[
             investigator.as_tool(
                 tool_name="investigate_repository",

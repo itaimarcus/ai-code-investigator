@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 
 from investigator.agent import build_agent, build_lead
 from investigator.metrics import collect_metrics
-from investigator.score_report import AnswerKey, load_answer_keys, score_report
 from investigator.tools import (
     RepoContext,
     finish_workspace,
@@ -20,7 +19,6 @@ from investigator.tools import (
 )
 
 REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
-ANSWER_KEY = Path(__file__).parent / "sample_answer_keys" / "inventory-app.json"
 QUESTION = (
     "What does this repository implement? "
     "Name the main types and functions, and cite the file and lines where each is defined."
@@ -115,27 +113,19 @@ def run_turn(
     session: SQLiteSession,
     message: str,
     model: str,
-    keys: list[AnswerKey],
 ) -> None:
     start_run(context)
     start = time.perf_counter()
     result = Runner.run_sync(agent, message, context=context, session=session)
     latency_seconds = time.perf_counter() - start
 
-    print(json.dumps(result.final_output.model_dump(mode="json"), indent=2))
+    print(result.final_output)
 
     metrics = collect_metrics(result, model, latency_seconds)
     print("\n--- Run metrics ---")
     print(json.dumps(asdict(metrics), indent=2))
 
     review_workspace(context, session)
-
-    key = next((item for item in keys if item.question == message), None)
-    if key is None:
-        return
-    score = score_report(result.final_output, key)
-    print("\n--- Score ---")
-    print(json.dumps(asdict(score), indent=2))
 
 
 def main() -> None:
@@ -148,11 +138,10 @@ def main() -> None:
     agent = choose_agent(model, single=args.single)
     context = RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT)
     session = SQLiteSession("inventory-app")
-    keys = load_answer_keys(ANSWER_KEY)
 
     message: str | None = QUESTION
     while message is not None:
-        run_turn(agent, context, session, message, model, keys)
+        run_turn(agent, context, session, message, model)
         message = read_next_message()
 
 

@@ -29,3 +29,49 @@ class InvestigationReport(BaseModel):
     citations: list[FileReference] = Field(
         description="File and line ranges that support the summary. Empty if there is nothing honest to cite.",
     )
+
+
+class RunCounts(BaseModel):
+    passed: int = Field(
+        ge=0,
+        description="How many tests passed.",
+    )
+    total: int = Field(
+        ge=0,
+        description="How many tests ran.",
+    )
+
+    @model_validator(mode="after")
+    def passed_not_above_total(self) -> "RunCounts":
+        if self.passed > self.total:
+            raise ValueError("passed must be less than or equal to total")
+        return self
+
+
+class RepairReport(BaseModel):
+    summary: str = Field(
+        description="What was wrong and what changed, based only on what the tools showed.",
+    )
+    files_changed: list[str] = Field(
+        description="Paths relative to the repository root that were edited. Empty if nothing was written.",
+    )
+    tests_before: RunCounts = Field(
+        description="Passed and total from the first run_tests call.",
+    )
+    tests_after: RunCounts = Field(
+        description="Passed and total from the last run_tests call.",
+    )
+    tests_failed_names: list[str] = Field(
+        description="Exact pytest names that failed. Empty if none failed.",
+    )
+    success: bool = Field(
+        description="True only when every test passed after the repair.",
+    )
+
+    @model_validator(mode="after")
+    def success_from_counts(self) -> "RepairReport":
+        self.success = (
+            self.tests_after.total > 0
+            and self.tests_after.passed == self.tests_after.total
+        )
+        return self
