@@ -1,296 +1,183 @@
 # AI Code Investigator
 
-A Python project, using the **OpenAI Agents SDK**, that investigates software repositories: answers questions about code, investigates failing tests, proposes fixes on a working copy, and copies them to the original project only after you type **`y`**.
+AI Code Investigator is a Python command-line tool, built on the [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/), that uses agents to inspect a software repository, explain failing tests, and try a fix. Edits from the agent go to a temporary working copy and are copied onto the original files only after you approve the diff.
 
-Built incrementally. The goal is both a working system and a clear understanding of how agents, tools, and application code fit together.
+The current target is a small sample shop, `sample_repos/inventory-app/`. A user-chosen folder and GitHub repositories are planned.
 
-Private working notes (prompt drafts, learning backlog) live in `ROADMAP.md`, which is git-ignored. How to work with Itai is in that file, under **How to work with Itai**; `AGENTS.md` points new Cursor agents there. This README is the committed project description.
+## Key features
 
-## Project goals
+- Investigates a repository with agents and tools this application controls: list files, read files, and search code.
+- Runs the project's pytest suite and uses that output in the investigation.
+- Can modify files in a temporary working copy and rerun tests to validate changes. Each turn allows 8 `replace_in_file` calls, including calls that fail to match.
+- Shows a diff and copies those files onto the original only if you type `y`.
+- Runs as a lead agent with an investigator and a repairer, or as one agent with `--single`.
+- Prints token use, tool calls, latency, and an estimated cost after every turn.
 
-- Understand agent execution, tool calling, context, and the boundary between model decisions and Python code.
-- Design workflows for code exploration, debugging, and repair.
-- Evaluate behavior with repeatable examples, not only one-off demos.
-- Add technologies (MCP, multi-agent, retrieval, hosted tools) when they serve a real purpose.
-- Apply engineering practices progressively; do not add infrastructure before it is needed.
+## Quick start
 
-## Intended capabilities (not all built yet)
-
-- Explore Python repositories and answer with file and line references.
-- Investigate failing `pytest` tests and report likely causes with evidence. (**M3:** `run_tests` on the sample shop.)
-- Propose edits on a **working copy**, run tests, revise within a bounded number of attempts. (**M4:** `replace_in_file`, cap 8 per turn, then `y`/`n`.)
-- Keep talking about the same repository in one terminal process until you type **`q`** or **`quit`**. (**M5.**)
-- Split investigation and repair: a lead delegates to specialists, or one agent with **`--single`**. (**M6.**) Compare the two with printed metrics. The repairer returns a `RepairReport`; the speaker you talk to writes plain text.
-- Require **explicit human approval** (`y`/`n`) before changing the original repository. (**M4.4**)
-- Measure quality, cost, latency, and tool use.
-- Support GitHub repos and **Model Context Protocol (MCP)**.
-
-## Getting started
-
-**Requirements:** Python 3.12, an OpenAI API key, internet access for model calls.
+**Requirements:** Python 3.12, an OpenAI API key, and network access. Running the agent spends API credit. The test suite does not.
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Create `.env` in the project root (git-ignored):
+`.env` is git-ignored. Replace the placeholders:
 
 ```dotenv
 OPENAI_API_KEY=your_api_key_here
 OPENAI_MODEL=gpt-6-luna
 ```
 
+If either name is missing, the process raises `RuntimeError` before any API call. The key stays in the environment. The model name is passed into the agent. Estimated cost is filled in only for `gpt-6-luna`, from the prices in `investigator/metrics.py`. Any other model still runs, and `estimated_cost_usd` is `null`.
+
 ```bash
 python main.py
+python main.py --single
 ```
 
-`load_dotenv()` loads `.env`. The SDK reads `OPENAI_API_KEY` from the environment; it is never passed to `Agent`. `main.py` reads `OPENAI_MODEL` and passes it to the lead, or to `build_agent(model)` if you pass `--single`. A missing variable raises `RuntimeError` before any API call.
+The first message is fixed in `main.py`: what the repository implements, with a citation for each main type and function. The process then waits at `>`.
 
-## How we verify
+- Type a question to continue. Earlier turns from this process stay in an in-memory SQLite session.
+- Press Enter on an empty line and the program asks you to type a question or `q`.
+- Type `q` or `quit` to exit. The session is discarded.
 
-Five kinds of check. Every time we add behavior, we say which of these we used and what we compared.
+## Example workflow
 
-1. **pytest (no OpenAI, no cost).** Saved checks of our Python (`list_files`, `read_file`, `search_code`, `run_tests`, `replace_in_file`, workspace copy, apply/discard, cost math, report fields, `load_answer_keys`, `score_report`, lead/specialist tool names, `--single`). From the project root, with `.venv` active: `pytest`. These tests do not call the language model. They live in `tests/`, outside the folder the agent can read. Shop tests are not collected here.
+`sample_repos/inventory-app/` is a shop: products, stock, pricing, and orders. Bulk orders are meant to get 10% off from 20 units. The committed code uses `>`:
 
-2. **Shop pytest (no OpenAI).** From `sample_repos/inventory-app/`: `python -m pytest -q`. If `inventory/pricing.py` still has the planted `>` bug: 2 passed, 2 failed (quantity 20). After you type **`y`** on a successful agent fix (`>=`): 4 passed. Put `>` back if you want the failing-test demo again.
+```python
+if quantity > BULK_DISCOUNT_THRESHOLD:
+```
 
-3. **Agent run + printed metrics + `y`/`n`.** `python main.py` is a conversation (lead by default). `python main.py --single` is the same loop with one agent. The first message is `QUESTION` in that file (inspection). After each answer it prints **plain text**, then JSON metrics for **that** turn: `requests` (model HTTP calls), `tool_calls` (our Python functions, also split by name), token counts, latency, estimated cost. Compare the two printouts by eye. If that turn successfully edited the copy, it prints a diff of those files and asks `y/n`. There is no score print (`score_report` stays in the repo for a later eval pass). Then it waits at `>`. Type a follow-up, or `q` / `quit` to exit. A follow-up usually shows more input tokens, because the transcript is sent again.
-
-4. **OpenAI traces.** Each run is recorded automatically. Open [Traces (Agents SDK)](https://platform.openai.com/logs?api=traces), pick the latest **Agent workflow** by timestamp. Check: number of `POST /v1/responses` equals printed `requests`. On `--single`, tool rows match printed `tool_calls`. On the lead, printed `tool_calls_by_name` only lists `investigate_repository` / `repair_repository`; inner `read_file` rows are in the nested trace. Adding per-turn token counts equals printed `input_tokens` / `output_tokens`; span duration is close to printed `latency_seconds` (ours is slightly larger because it includes SDK setup).
-
-5. **GitHub Actions CI (no OpenAI).** On every push to `main` and on every pull request into `main`, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same project-root `pytest` as item 1 (Python 3.12, `requirements.txt`, no API key). Open the repo **Actions** tab to see pass/fail and logs. Future feature branches can open a PR to get CI before merge.
-
-**Cost** is an **estimate**, not a bill. Token counts come from `result.context_wrapper.usage`. Prices come from [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and are stored in `investigator/metrics.py` for `gpt-6-luna` only (USD per 1M tokens: input $0.10, cached input $0.01, 30-minute cache write $0.125, output $0.50). Reasoning tokens are already inside `output_tokens` and use the output price. Unknown models still run and print `estimated_cost_usd: null`.
-
-A **request** is one model HTTP call. A **tool call** is our Python function. One request can include several tool calls. `"requests": 3` with four tool calls is normal.
-
-## Current status
-
-**M0–M6.2.** `python main.py` is a conversation on the sample shop. The first message is a hard-coded inspection `QUESTION` (what the repository implements, with file and line citations). The printed answer is **plain text**. The process then waits at `> `. Type a follow-up, or `q` / `quit` to exit. One shop folder and one `SQLiteSession("inventory-app")` last for the whole process. That session uses the SDK default `db_path=":memory:"`: the transcript lives in this process and is gone when you quit. There is no session file.
-
-**Default:** a **lead** answers you. It cannot call the five repo tools. Its only tools are two specialists (`investigate_repository` and `repair_repository`), each an agent turned into a tool with `Agent.as_tool`. The investigator can list, read, and search, and finishes as an `InvestigationReport`. The repairer can read, run tests, and replace, and finishes as a `RepairReport` (summary, files it named, test counts before and after, failed test names, success from those counts). The lead reads that object as JSON text and writes ordinary text. That text is what prints. The lead has no `output_type`. **`python main.py --single`:** one agent (`build_agent`) with all five repo tools and no `output_type`. The flag is read once at startup.
-
-Each turn prints the answer and metrics for **that** turn, including how many tools ran, by name. On the lead, those names are the two specialists. Inner `read_file` calls are in the trace. `requests`, tokens, and cost include the specialists. There is no score print. The model does not choose the shop folder. Paths it names must stay inside it.
-
-The agent may fix a **copy** (at most **8** `replace_in_file` calls **per turn**). `start_run` clears the counter and the set of changed paths before each turn. After the report, if that turn’s copy has **successful** edits, you type **`y`** or **`n`**: `y` copies those files onto the original shop; either answer deletes **this turn’s** copy. Apply uses Python’s set of file names from successful `replace_in_file` calls (not a scan of every file, not `RepairReport.files_changed`). A turn that never edits does not copy and does not ask. After `y` or `n`, that sentence is appended to the session as a developer message so the next turn can read it.
-
-`build_agent(model)` uses default tools and instructions. Callers may pass `tools=` or `instructions=` later. `main.py` calls `build_lead(model)` unless you pass `--single`.
+An order of exactly 20 units is therefore full price. From that directory, `python -m pytest -q` reports:
 
 ```text
-main.py                       # conversation loop; --single for one agent; plain-text answer + metrics each turn; y/n
-investigator/agent.py         # lead, investigator, repairer, and the one-agent builder
-investigator/report.py        # InvestigationReport; RepairReport
-investigator/tools.py         # RepoContext, start_run, @function_tool wrappers
-investigator/repo.py          # disk access (list, resolve, read, search, replace, run_tests); no SDK
-investigator/metrics.py       # tokens, latency, cost, tool-call counts
-investigator/score_report.py  # load_answer_keys; score one report vs one key
-tests/                        # pytest for repo.py, metrics, report, scorer (no OpenAI)
-sample_repos/inventory-app/   # investigation target; restore `>` in pricing.py for the failing-test demo
-sample_answer_keys/inventory-app.json  # cases: Product + bulk discount (agent must not)
+FAILED tests/test_pricing.py::test_bulk_discount_at_threshold - AssertionError: assert 100.0 == 90.0
+FAILED tests/test_pricing.py::test_place_order_applies_bulk_discount_at_threshold - AssertionError: assert 100.0 == 90.0
+2 failed, 2 passed
 ```
 
-First question in `main.py`: what the repository implements, with a citation for each main type and function. It is an inspection question, so this turn should not edit files.
+Quantity 5 and quantity 30 pass.
 
-The follow-up prompt (type at `>` after the first answer) is: `The shop tests are failing. Find the bug, fix it on the working copy, re-run until the tests pass or the replace limit is reached, and say what you changed.` After that repair, type **`n`** if you still want the planted bug for a `--single` run. If a turn edits, you still get a diff and `y`/`n`. After **`y`**, those files are copied onto the shop. After **`n`**, the shop is unchanged. Either answer is also written into the session as a developer message, so the next turn can read it. If every replace **failed** (snippet not in the file), Python still made a copy, then deletes it with **no** `y`/`n` and does not add a session message.
-
-**Checked with the model (4.4):** `python main.py` — `"requests": 6`, tools included `run_tests` twice and `replace_in_file` once; diff showed `>` to `>=`; **`y`** applied. Cost estimate about $0.0005.
-
-## What we built and how we checked it
-
-### M0 — Hello agent
-
-Minimal `Agent` + `Runner.run_sync`, no tools. Metrics printed after each run.
-
-**Checked:** `python main.py` printed an answer; metrics showed `"requests": 1`. Traces: one `POST /v1/responses`; token counts matched. Cost matched a hand calculation from the pricing table (input × $0.10 + output × $0.50, per million tokens). Latency for the same call varied (about 3 s vs 9.5 s) because of provider-side wait, not our code.
-
-### M1.1 — Sample project `inventory-app`
+At `>`, a repair request you can type is:
 
 ```text
-sample_repos/inventory-app/     # folder given to the agent
-├── README.md
-├── pytest.ini
-├── tests/
-│   └── test_pricing.py         # qty 5 and 30 pass; qty 20 fails (two tests)
-└── inventory/                  # importable package (name cannot contain '-')
-    ├── products.py             # Product: sku, name, unit_price
-    ├── stock.py                # Stock + OutOfStockError
-    ├── pricing.py              # intended 10% off from 20 units; planted `>` bug
-    └── orders.py               # place_order: stock then pricing
+The shop tests are failing. Find the bug, fix it on the working copy, re-run until the tests pass or the replace limit is reached, and say what you changed.
 ```
 
-The outer name may use a hyphen; the inner package name may not (`import inventory-src` is invalid). The sample project is committed with this repo.
+The first `replace_in_file` in that turn copies the shop into `workspaces/<id>/`. Later tools in the turn see the copy. On a recorded repair of this bug, the copy changed the comparison from `>` to `>=`. The program then prints a diff and waits:
 
-There was **no written answer key** in M1. M2 added `sample_answer_keys/inventory-app.json` (sibling of `sample_repos/`, never inside the shop). M3 added shop pytest tests and a planted comparison bug in `calculate_total`.
+```diff
+--- a/inventory/pricing.py
++++ b/inventory/pricing.py
+@@ -6,6 +6,6 @@
 
-**Checked with a smoke test** from `sample_repos/inventory-app/` (imports work here; `python inventory/orders.py` does not):
-
-```bash
-python -c "
-from inventory.products import Product
-from inventory.stock import Stock, OutOfStockError
-from inventory.orders import place_order
-p = Product('MUG-01', 'Coffee mug', 5.0)
-s = Stock(); s.add('MUG-01', 30)
-print('small order:', place_order(s, p, 2).total, '| left:', s.available('MUG-01'))
-print('order of 20 (planted bug, full price):', place_order(s, p, 20).total, '| left:', s.available('MUG-01'))
-try:
-    place_order(s, p, 50)
-except OutOfStockError as e:
-    print('too many:', e)
-"
+ def calculate_total(product: Product, quantity: int) -> float:
+     total = product.unit_price * quantity
+-    if quantity > BULK_DISCOUNT_THRESHOLD:
++    if quantity >= BULK_DISCOUNT_THRESHOLD:
+         total *= 1 - BULK_DISCOUNT_RATE
+     return round(total, 2)
 ```
 
-Expected: `10.0` / 28 left; `100.0` / 8 left; `OutOfStockError`. An order of exactly 20 units is full price until the planted `>` bug is fixed. Quantity 30 still gets 10% off (`135.0` for a $5 mug).
-
-### M1.2 — `list_files`
-
-A **tool** is a Python function the model may ask us to run. `@function_tool` (Agents SDK; not LangChain `@tool`) builds the schema from the name, types, and docstring. The SDK runs the function and sends the return string back to the model. That repeat is the **agentic loop**.
-
-The folder is `RepoContext(source_root=..., workspace_root=...)` passed to `Runner.run_sync`. At start both paths are the same (the shop). Tools receive `ctx: RunContextWrapper[RepoContext]` and use `ctx.context.workspace_root`. The model never sees it (`list_files` schema has no parameters). `ctx` exists only while a tool runs; after the run, the same envelope is `result.context_wrapper`.
-
-`repo.py` talks to the disk; `tools.py` only wraps it for the agent.
-
-**Checked:**
-
-```bash
-python -c "from pathlib import Path; from investigator import repo; print(repo.list_files(Path('sample_repos/inventory-app')))"
-python -c "from investigator.tools import list_files; print(list_files.name); print(list_files.description); print(list_files.params_json_schema)"
+```text
+Apply these changes to the original project? y/n
 ```
 
-Expected: relative paths for the shop (including `pytest.ini` and `tests/test_pricing.py` after M3); schema `'properties': {}`. An earlier `python main.py` (question about files) listed all six files that existed then, `"requests": 2`, input tokens 64 → 281. Trace: `list_files` between two model turns; turn tokens summed to the printout.
+`y` copies the changed files onto the shop. `n` leaves the shop as it is. Either answer deletes that turn's copy. The two failing tests expect `90.0`, which is the total once 20 units qualify for the discount. Type `n` if you want the planted bug to remain for another run.
 
-### M1.3 — `read_file`
+The model is not guaranteed to produce this diff on every run. A turn that never edits does not copy the shop and does not ask for approval.
 
-The model now names a path. That string is untrusted. `resolve_in_repo` refuses paths outside `sample_repos/inventory-app/` (for example `../../.env`). **Do not test confinement with `.env`.** If the check were buggy, the command would print the secret. Use `../../README.md`.
+## Architecture
 
-Missing or illegal paths: `repo.py` raises `RepoAccessError`; `tools.py` returns `str(error)` so the run continues. The model chooses the next tool; `read_file` does not call `list_files` itself.
+By default you talk to a lead. It cannot read or edit the repository. It calls two specialist agents, exposed with `Agent.as_tool()`. Each specialist runs its own loop and returns a report. That report is handed back to the lead as JSON, and the lead writes the plain text you see. One message can call both specialists. The lead stays the speaker for the whole conversation.
 
-Output: numbered lines, optional `start_line` / `end_line` (1-based, inclusive), cap 400 lines per call (request another range to continue). Path confinement is not a denylist: `.env` *inside* the allowed folder would still be readable (deferred).
-
-**Checked (no model):**
-
-```bash
-python -c "from pathlib import Path; from investigator import repo; print(repo.read_file(Path('sample_repos/inventory-app'), 'inventory/pricing.py'))"
-python -c "from pathlib import Path; from investigator import repo; print(repo.read_file(Path('sample_repos/inventory-app'), 'inventory/pricing.py', start_line=3, end_line=4))"
-python -c "from pathlib import Path; from investigator import repo; repo.read_file(Path('sample_repos/inventory-app'), '../../README.md')"
-python -c "from pathlib import Path; from investigator import repo; repo.read_file(Path('sample_repos/inventory-app'), 'inventory/order.py')"
+```mermaid
+flowchart TD
+  user[You] --> lead[Lead]
+  lead -->|investigate_repository| investigator[Investigator]
+  lead -->|repair_repository| repairer[Repairer]
+  investigator -->|list, read, search| files[Repository]
+  repairer -->|read and test| files
+  repairer -->|replace| copy[Working copy]
+  investigator --> lead
+  repairer --> lead
+  lead --> answer[Plain-text answer]
+  copy --> approval["Python asks y or n"]
+  approval -->|y| original[Original repository]
 ```
 
-Expected: full numbered `pricing.py` including `BULK_DISCOUNT_THRESHOLD = 20` and `BULK_DISCOUNT_RATE = 0.10`; two-line range; `RepoAccessError` outside the folder; `File not found: inventory/order.py. Use list_files to see available files.` Calling `repo.read_file` from the terminal prints a traceback (nothing catches the exception). The agent sees only the message string.
-
-**Checked (model + trace):** `python main.py` answered 10% off for 20+ units, used by `place_order`. Facts correct; printed text named functions, not `pricing.py` / `orders.py`. Metrics: `"requests": 3`, ~1200 input tokens, ~8.2 s, cost from the pricing table. Trace ([Agents SDK logs](https://platform.openai.com/logs?api=traces)): three `POST /v1/responses`; `list_files` then three `read_file`s in one turn (including `README.md`, not required); final answer with no tools. Latency matched ~8146 ms. Tool spans 1–5 ms. Order inside a batch does not matter: all three reads were requested before any file body was seen.
-
-### M1.4 — `search_code`
-
-Literal, case-sensitive substring search over the same files as `list_files`. The model passes only the query. Hits look like `path:line: text`. Caps: 5 matches per file, 50 total. Empty query and zero matches return short strings.
-
-### M1.5 — Structured output
-
-The final reply is an `InvestigationReport`: `summary` plus `citations` (`path`, `start_line`, `end_line`). Shape only. Empty citations are allowed. Invalid JSON from the model stops the run.
-
-For the current `QUESTION` in `main.py`, see **Current status** above.
-
-### M1.6 — Tool-call metrics and pytest
-
-`RunMetrics` includes `tool_calls` and `tool_calls_by_name`. pytest in `tests/` checks `repo.py`, cost math, and report fields. pytest does not call OpenAI.
-
-### M2 — Score a report
-
-**2.1** — `investigator/score_report.py`: load keys and `score_report`. pytest builds fake `InvestigationReport`s (no OpenAI). `python main.py` prints `--- Score ---` after a real run when `QUESTION` matches a JSON case.
-
-**2.2** — The JSON is `{ "cases": [ Product, bulk discount ] }`. `load_answer_keys` returns a list. `score_report` still grades one report against one key. `build_agent` may take `tools=` and `instructions=`; defaults are unchanged.
-
-M2 is the scorecard for those listed questions. Exam loops and prompt/tool variant grids are not part of this milestone.
-
-### M3 — Failing-test investigation
-
-The model may call `run_tests`. Our Python starts `python -m pytest -q` in the shop folder and returns the printed output as a string. The model does not get a shell and cannot choose the command. A failed pytest run is a normal string, like a missing file.
-
-`calculate_total` in `inventory/pricing.py` was planted with `quantity > BULK_DISCOUNT_THRESHOLD`. Shop tests: quantity 5 expects `25.0` (pass); quantity 20 expects `90.0` on both `calculate_total` and `place_order` (fail while the bug is present, code returns `100.0`); quantity 30 expects `135.0` (pass). After a `y` apply of `>=`, quantity 20 passes too.
-
-The agent is **agent-driven**: it calls `run_tests` when the question needs it. `main.py` does not run pytest first.
-
-**Checked:** `pytest` from the project root; `python -m pytest -q` from `sample_repos/inventory-app/` shows 2 passed, 2 failed; `python main.py` with the failing-test question — agent called `run_tests`, cited `inventory/pricing.py`, explained `>` vs `>=` (no JSON score).
-
-### M4 — Workspace, replace, cap, `y`/`n`
-
-The first `replace_in_file` **copies** the shop into `workspaces/<id>/` (`shutil.copytree`, a real folder duplicate). Later tools in that run use the copy. `old_text` must appear exactly once. Python allows at most 8 `replace_in_file` calls per run. Each **successful** replace adds the relative path to a **set**. After the agent, 4.4 prints diffs for **that set only** and asks `y/n`. `y` copies those files onto the original (`shutil.copy2`); then this run’s copy folder is deleted (`shutil.rmtree`). `n` skips the copy-back and still deletes the copy.
-
-A failed replace (typo in `old_text`) still creates the copy first, does not add the path to the set, and 4.4 does not ask `y/n`. pytest covers that without the model (`test_failed_replace_copy_is_discarded_without_touching_source`).
-
-**Checked (no OpenAI):** `pytest` from the project root. **With the model:** `python main.py` as in **Current status**.
-
-### M5 — Conversation
-
-`main.py` builds one agent, one `RepoContext`, and one `SQLiteSession("inventory-app")`, then loops. `Runner.run_sync` receives that session on every turn, so the model sees earlier messages, tool calls, and reports. `SQLiteSession` defaults to an in-memory database. Quitting the process drops the transcript. A file that survives the process would be the same class with a `db_path`; this step does not pass one.
-
-`start_run` runs before every `Runner.run_sync` and zeroes `replace_attempts` and `replaced_paths`. `finish_workspace` still deletes the copy after `y`/`n`. It does not clear those fields; the next turn’s `start_run` does, after the diff has already been printed.
-
-After you type `y` or `n`, `remember_approval` appends that same sentence to the session as a developer message (`role` `developer`, the program speaking, not you and not the model). The next turn sees it. `input()` by itself does not send keystrokes to the model; this write is what does. A turn that never edits does not ask, and does not add that message.
-
-**Checked (no OpenAI):** `pytest` — `test_start_run_clears_replace_attempts_and_paths` and `test_remember_approval_appends_a_developer_message` (51 passed). The `input()` loop is not under pytest.
-
-**Checked with the model:** `python main.py` with the inspection question. First turn: `"requests": 3`, `list_files` once and `read_file` seven times, no edits, no `y`/`n`. Follow-up “Which file defines the Product class?”: `"requests": 2`, one `read_file`, answer cited `inventory/products.py` lines 4–8. Input tokens rose (3578 then 4565), so the second turn received the first turn’s transcript. `q` exited. The two turns cost about $0.0008. `remember_approval` was not hit on this run, because nothing was edited; pytest covers that write.
-
-### M6.1 — Lead plus two specialists
-
-The default speaker is a lead. It has no repo tools. `Agent.as_tool` turns the investigator and the repairer into `investigate_repository` and `repair_repository`. In 6.1 every agent still finished as an `InvestigationReport`. The lead only sees that object as JSON text (`specialist_report_text`), then writes its own report. The chat `SQLiteSession` stays on the lead; a specialist sees only the text the lead puts in the tool call. 6.2 dropped the lead’s schema (plain text).
-
-`--single` is `build_agent` (five repo tools). **Handoffs are not used.** A handoff would make the specialist the agent talking to you (cheaper: about one routing trip plus the worker’s loop, no rewrite). Agent-as-tool keeps you talking to the lead and lets one message call both specialists; that costs an extra rewrite trip. `--single` is cheaper still (no routing trip). Full tradeoff: ROADMAP, **Agent-as-tool vs handoff vs `--single`**.
-
-**Checked (no OpenAI):** `pytest` from the project root (`tests/test_agent.py`, `tests/test_main.py`). **With the model (inspection only):** `--single` `"requests": 3`, `list_files` once and `read_file` seven times, about $0.00072, ~15 s. Lead `"requests": 5`, one `investigate_repository`, about $0.00133, ~27 s.
-
-### M6.2 — Question kinds and repair shape
-
-The investigator still returns `InvestigationReport`. The repairer returns `RepairReport` (summary, claimed paths, test counts before and after, exact failed test names, `success` from those counts). The lead and `--single` have no `output_type`; `main.py` prints their text. `RepairReport` does not drive `y`/`n`; apply still uses `replaced_paths`. `main.py` does not print a score.
-
-The follow-up prompt after the inspection question is the failing-test repair sentence in **Current status**. After a repair, type **`n`** so the other process still sees the planted bug. Turn 2 is the same conversation: the session still holds turn 1, so input tokens go up (and many are cached).
-
-**Checked (no OpenAI):** `pytest` from the project root (67 passed). **With the model:** two-turn conversation (inspection, then the follow-up prompt), `--single` then lead, **`n`** after each repair. Both diffs were `>` to `>=` in `inventory/pricing.py`. `--single` inspection `"requests": 3`, about $0.00073; repair `"requests": 4`, about $0.00032 (cached input 9666 of 10735). Lead inspection `"requests": 9`, `investigate_repository` twice, about $0.0020; repair `"requests": 8`, one `repair_repository`, about $0.00079. Totals about $0.00105 / 25 s vs $0.00277 / 64 s. Same fix. The lead called the investigator twice on inspection (waste; the lead is a model, not a Python cap).
-
-## Architecture and design decisions
-
-Guiding rule: **the agent reasons and proposes; Python executes and enforces boundaries.**
-
-| Area | Approach | Rationale |
+| Agent | Tools | Result |
 | --- | --- | --- |
-| Framework | Python + OpenAI Agents SDK | Learn agents, tools, and lifecycle before another orchestrator. |
-| Interface | `main.py` conversation; first question and instructions in source | Agent behavior before a richer CLI/UI. |
-| Config | `.env` + `python-dotenv` | Secrets and model name stay out of code. |
-| Dependencies | `requirements.txt` | Change only if a clear need arises. |
-| Internal data | `@dataclass` (`RunMetrics`, `RepoContext`); Pydantic `InvestigationReport` / `RepairReport` | Dataclass for our records; Pydantic when the SDK validates a specialist's final reply. Lead and `--single` are plain text. |
-| Repo scope | Local, trusted Python first | Investigation before untrusted execution or GitHub. |
-| Exploration | Custom list/read/search tools | Model pulls files on demand; we control path safety and size. |
-| Tool context | SDK `RunContextWrapper` + `RepoContext` | We choose the folder; the model cannot. |
-| File access | `repo.py` (disk) / `tools.py` (agent) | One place to harden later; tools stay thin. |
-| Editing | Search-and-replace on a working copy (M4.2) | Unique snippet only; original files stay unchanged until approval (4.4). |
-| Approval | Terminal `y`/`n`; Python copies successful replace paths | Model does not write the original. |
-| Orchestration | Default lead delegates via `Agent.as_tool`; `--single` is one agent; Python caps replaces at 8 per turn (`start_run`) | You always talk to the lead; one message can use both specialists; extra model trips vs `--single`. Handoff rejected (speaker would swap). |
-| Evaluation | `score_report` in the repo; `main.py` does not print a score | Later eval pass; 6.2 compares by reading the answer and metrics. |
-| Observability | Tokens, estimated cost, latency, traces | Cost uses OpenAI list prices; traces confirm usage. |
-| Integrations | MCP, GitHub, hosted tools later | When they enable a capability or a fair experiment. Multi-agent is M6 (agent-as-tool; handoff rejected). |
+| Investigator | `list_files`, `read_file`, `search_code` | `InvestigationReport`: a summary and citations (`path`, `start_line`, `end_line`) |
+| Repairer | `read_file`, `run_tests`, `replace_in_file` | `RepairReport`: a summary, files it named, test counts, failed test names, and whether the last run passed |
+| Lead | the two specialists only | Plain text. No required schema. |
+| `--single` | all five repository tools | Plain text. One agent, no lead. |
 
-**Sync vs async (open):** `Runner.run_sync` now. `await Runner.run` when we need parallel evals, several users, streaming (`Runner.run_streamed`), or parallel agents. Threads are another option (sync code, several waiters). Decide when a need appears.
+`python main.py --single` is the same conversation with that one agent. Both modes exist to compare one agent that calls the repository tools directly with a lead that delegates to specialists. The printed metrics are what you compare.
 
-**Trusted repos vs original files:** trusting the sample code is not a claim that unknown repos are safe. `pytest` would run their code with local permissions. A working copy is not a sandbox.
+| Tool | What it does |
+| --- | --- |
+| `list_files` | Relative paths. Skips `__pycache__`, `.git`, `.venv`, and `.pytest_cache`. |
+| `read_file` | Numbered lines, optional 1-based range, at most 400 lines per call. |
+| `search_code` | Literal, case-sensitive search. At most 5 matches per file and 50 total. |
+| `run_tests` | `python -m pytest -q` in the current root. Timeout 30 seconds. A failing suite comes back as text. |
+| `replace_in_file` | Replaces one exact snippet in an existing file on the working copy. Zero matches, or more than one, returns an error and does not write. |
 
-**Local tools vs uploading a repo:** tools run here. Only the strings they return go to the model.
+A bad path is returned to the model as a string, and the turn continues. Python chooses the repository folder. The model does not receive it as an argument.
 
-## Development roadmap
+After each turn the program prints JSON metrics:
 
-| Milestone | Scope | Definition of Done |
-| --- | --- | --- |
-| **M0 — Hello Agent** (completed) | Agent, Runner, config, metrics, tracing | `python main.py` prints answer + metrics; trace inspectable |
-| **M1 — Repository Q&A** (completed) | list, read, search; Pydantic answers; pytest for tools | Questions about the sample project, including multi-file ones, with file references; tool tests pass; metrics include tool calls |
-| **M2 — First evaluations** (completed) | Known-answer set, scorecard | Citation score for questions listed in the JSON |
-| **M3 — Failing-test investigation** (completed) | `run_tests` on the shop; planted threshold bug | Agent can run shop pytest and explain the seeded failure |
-| **M4 — Repair, retries, approval** (completed on sample shop) | Working copy, 8-replace cap, diff, `y`/`n` | Fixes seeded bugs; original unchanged without `y` |
-| **M5 — Conversation** (completed) | Multi-turn terminal chat; `SQLiteSession` in memory | More than one user message in one `python main.py`; history kept until quit |
-| **M6 — Multi-agent** (completed) | Agent-as-tool lead vs `--single`; repair shape | Lead and `--single` are plain text; repairer returns `RepairReport`; compare printed metrics |
-| **M7 — MCP and GitHub** | MCP client and server, GitHub repos | Integration and safety criteria before coding |
+- `requests` — the number of model requests the SDK reports for that turn. One request can ask for several tools.
+- `tool_calls` and `tool_calls_by_name` — Python functions the model asked to run. On the lead, those names are `investigate_repository` and `repair_repository`. The specialists' own calls appear in the [OpenAI trace](https://platform.openai.com/logs?api=traces).
+- Token counts, `latency_seconds`, and `estimated_cost_usd`. The cost is an estimate from the token counts and the `gpt-6-luna` prices, not an invoice.
 
-**Next:** **M7** (MCP and GitHub). Leftover from earlier milestones: CLI repo path (old 4.0), clickable citations, create-new-file, a session file (`db_path`), Git branch as an apply option (see ROADMAP). Leftover `workspaces/` from before 4.4: `rm -rf workspaces`.
+```text
+main.py                         # conversation, metrics, approval
+investigator/agent.py           # lead, investigator, repairer, single agent
+investigator/tools.py           # tools and workspace state
+investigator/repo.py            # disk and pytest
+investigator/report.py          # InvestigationReport, RepairReport
+investigator/metrics.py         # tokens, latency, estimated cost
+tests/                          # tests for this project
+sample_repos/inventory-app/     # repository under investigation
+```
 
-Deferred until needed: Ruff, `logging`, CLI/UI, Docker/E2B, prompt-injection defenses, RAG vs text search, LangGraph, secret-file denylist, pinning `requirements.txt`.
+## Safety and limitations
+
+The edit tool writes only to the working copy. Python copies files onto the original only after you type `y`, and only for paths that `replace_in_file` actually changed. It then deletes the working copy. The repairer's own list of files is not what gets copied. If every replacement fails, the copy is still created and then deleted, with no approval prompt.
+
+`run_tests` still executes the project's pytest with your local permissions, so a test can have side effects that this approval step does not cover. Use it on a repository you trust. The working copy is not a sandbox.
+
+Other limits of the current program:
+
+- The repository path is hard-coded to the sample shop.
+- The first message asks for an explanation. Only the investigator is unable to edit. The lead can still call the repairer, and `--single` has the edit tool.
+- The printed answer is plain text. Citations are requested, not checked.
+- The conversation ends when the process exits.
+- `replace_in_file` cannot create a new file.
+- Nothing stops the lead from calling the same specialist more than once in one turn.
+- A folder left in `workspaces/` by an interrupted run stays until you remove it.
+
+## Testing and CI
+
+From the project root, with the virtual environment active:
+
+```bash
+pytest
+```
+
+`pytest.ini` collects `tests/` only, and these tests do not call the model. The shop's own tests run from `sample_repos/inventory-app/`, or when the agent calls `run_tests`.
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs that same `pytest` on every push to `main` and every pull request into `main` (Python 3.12, no API key).
+
+Pushing a tag such as `v0.1.0` runs [`.github/workflows/release.yaml`](.github/workflows/release.yaml). It runs `pytest` on that commit and, if the tests pass, creates a GitHub Release for the tag with generated notes. GitHub attaches the source archives. No API key.
+
+## Roadmap
+
+The tool can already inspect the sample shop, investigate its failing tests, propose a fix on a working copy, and apply that fix after approval, either with the lead or with `--single`.
+
+Next: accept a repository you choose, and investigate a GitHub repository through the Model Context Protocol (MCP).
