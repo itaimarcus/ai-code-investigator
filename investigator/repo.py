@@ -104,9 +104,7 @@ def replace_in_file(
     try:
         content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise RepoAccessError(
-            f"File is not valid UTF-8 text: {relative_path}"
-        ) from exc
+        raise RepoAccessError(f"File is not valid UTF-8 text: {relative_path}") from exc
     matches = content.count(old_text)
     if matches == 0:
         raise RepoAccessError(
@@ -122,9 +120,7 @@ def replace_in_file(
     return f"Replaced one match in {relative_path}."
 
 
-def unified_diff(
-    source_root: Path, workspace_root: Path, relative_path: str
-) -> str:
+def unified_diff(source_root: Path, workspace_root: Path, relative_path: str) -> str:
     original = resolve_in_repo(source_root, relative_path)
     edited = resolve_in_repo(workspace_root, relative_path)
     old_lines = original.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -250,6 +246,4 @@ def _clip_test_output(text: str) -> str:
     if len(text) <= MAX_TEST_OUTPUT:
         return text
     kept = text[-MAX_TEST_OUTPUT:]
-    return (
-        f"[output truncated; showing last {MAX_TEST_OUTPUT} characters]\n{kept}"
-    )
+    return f"[output truncated; showing last {MAX_TEST_OUTPUT} characters]\n{kept}"

@@ -9,7 +9,9 @@ ANSWER_KEY_PATH = (
 
 
 def _report(*citations: FileReference) -> InvestigationReport:
-    return InvestigationReport(summary="Product lives in products.py.", citations=list(citations))
+    return InvestigationReport(
+        summary="Product lives in products.py.", citations=list(citations)
+    )
 
 
 def _product_key() -> AnswerKey:

@@ -167,14 +167,16 @@ Other limits of the current program:
 From the project root, with the virtual environment active:
 
 ```bash
+ruff check .
+ruff format --check .
 pytest
 ```
 
-`pytest.ini` collects `tests/` only, and these tests do not call the model. The shop's own tests run from `sample_repos/inventory-app/`, or when the agent calls `run_tests`.
+[Ruff](https://docs.astral.sh/ruff/) is the linter (`ruff check`) and the formatter (`ruff format`; run `ruff format .` to apply it). `pytest.ini` collects `tests/` only, and these tests do not call the model. The shop's own tests run from `sample_repos/inventory-app/`, or when the agent calls `run_tests`.
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs that same `pytest` on every push to `main` and every pull request into `main` (Python 3.12, no API key).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs those three commands on every push to `main` and every pull request into `main` (Python 3.12, no API key).
 
-Pushing a tag such as `v0.1.0` runs [`.github/workflows/release.yaml`](.github/workflows/release.yaml). It runs `pytest` on that commit and, if the tests pass, creates a GitHub Release for the tag with generated notes. GitHub attaches the source archives. No API key.
+Pushing a tag such as `v0.1.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml). It runs the same three checks on that commit and, if they pass, creates a GitHub Release for the tag with generated notes. GitHub attaches the source archives. No API key.
 
 ## Roadmap
 

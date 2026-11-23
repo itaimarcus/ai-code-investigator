@@ -33,7 +33,9 @@ def test_resolve_in_repo_rejects_ignored_directory() -> None:
 
 
 def test_resolve_in_repo_rejects_missing_file() -> None:
-    with pytest.raises(repo.RepoAccessError, match="File not found: inventory/order.py"):
+    with pytest.raises(
+        repo.RepoAccessError, match="File not found: inventory/order.py"
+    ):
         repo.resolve_in_repo(SHOP, "inventory/order.py")
 
 

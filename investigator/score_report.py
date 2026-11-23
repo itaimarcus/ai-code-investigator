@@ -25,8 +25,7 @@ class ScoreResult:
 
 def _key_from_item(item: dict) -> AnswerKey:
     checks = [
-        CiteCheck(path=row["path"], line=row.get("line"))
-        for row in item["must_cite"]
+        CiteCheck(path=row["path"], line=row.get("line")) for row in item["must_cite"]
     ]
     return AnswerKey(question=item["question"], must_cite=checks)
 
