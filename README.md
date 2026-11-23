@@ -2,7 +2,7 @@
 
 AI Code Investigator is a Python command-line tool, built on the [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/), that uses agents to inspect a software repository, explain failing tests, and try a fix. Edits from the agent go to a temporary working copy and are copied onto the original files only after you approve the diff.
 
-The current target is a small sample shop, `sample_repos/inventory-app/`. A user-chosen folder and GitHub repositories are planned.
+You pass the folder to investigate on the command line. A small sample shop, `sample_repos/inventory-app/`, is included to try it. GitHub repositories are planned.
 
 ## Key features
 
@@ -34,11 +34,11 @@ OPENAI_MODEL=gpt-6-luna
 If either name is missing, the process raises `RuntimeError` before any API call. The key stays in the environment. The model name is passed into the agent. Estimated cost is filled in only for `gpt-6-luna`, from the prices in `investigator/metrics.py`. Any other model still runs, and `estimated_cost_usd` is `null`.
 
 ```bash
-python main.py
-python main.py --single
+python main.py sample_repos/inventory-app
+python main.py sample_repos/inventory-app --single
 ```
 
-The first message is fixed in `main.py`: what the repository implements, with a citation for each main type and function. The process then waits at `>`.
+The folder is required. A relative path is resolved from the current directory, and a path that is not a folder stops the program before any API call. The first message is fixed in `main.py`: what the repository implements, with a citation for each main type and function. The process then waits at `>`.
 
 - Type a question to continue. Earlier turns from this process stay in an in-memory SQLite session.
 - Press Enter on an empty line and the program asks you to type a question or `q`.
@@ -117,7 +117,7 @@ flowchart TD
 | Lead | the two specialists only | Plain text. No required schema. |
 | `--single` | all five repository tools | Plain text. One agent, no lead. |
 
-`python main.py --single` is the same conversation with that one agent. Both modes exist to compare one agent that calls the repository tools directly with a lead that delegates to specialists. The printed metrics are what you compare.
+`--single` is the same conversation with that one agent. Both modes exist to compare one agent that calls the repository tools directly with a lead that delegates to specialists. The printed metrics are what you compare.
 
 | Tool | What it does |
 | --- | --- |
@@ -154,7 +154,8 @@ The edit tool writes only to the working copy. Python copies files onto the orig
 
 Other limits of the current program:
 
-- The repository path is hard-coded to the sample shop.
+- The tools see every file in the folder except `__pycache__`, `.git`, `.venv`, and `.pytest_cache`. That includes a `.env` file, whose contents would be sent to the model if it is read.
+- `run_tests` runs pytest with this tool's own Python, so a project whose tests import packages that are not installed here fails on import.
 - The first message asks for an explanation. Only the investigator is unable to edit. The lead can still call the repairer, and `--single` has the edit tool.
 - The printed answer is plain text. Citations are requested, not checked.
 - The conversation ends when the process exits.
@@ -180,6 +181,6 @@ Pushing a tag such as `v0.1.0` runs [`.github/workflows/release.yml`](.github/wo
 
 ## Roadmap
 
-The tool can already inspect the sample shop, investigate its failing tests, propose a fix on a working copy, and apply that fix after approval, either with the lead or with `--single`.
+The tool can already inspect a folder you choose, investigate its failing tests, propose a fix on a working copy, and apply that fix after approval, either with the lead or with `--single`.
 
-Next: accept a repository you choose, and investigate a GitHub repository through the Model Context Protocol (MCP).
+Next: use the project's own `.gitignore` to decide which files the tools see, run the project's own test command, ship an installable package, and work on GitHub repositories.

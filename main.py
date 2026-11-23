@@ -18,7 +18,6 @@ from investigator.tools import (
     start_run,
 )
 
-REPO_ROOT = Path(__file__).parent / "sample_repos" / "inventory-app"
 QUESTION = (
     "What does this repository implement? "
     "Name the main types and functions, and cite the file and lines where each is defined."
@@ -30,6 +29,9 @@ DISCARDED_NOTE = "Discarded the working copy. The original project is unchanged.
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Investigate a software repository.")
     parser.add_argument(
+        "repo", type=Path, help="Folder of the repository to investigate."
+    )
+    parser.add_argument(
         "--single",
         action="store_true",
         help=(
@@ -37,7 +39,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "that delegates to specialists."
         ),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.repo = args.repo.expanduser().resolve()
+    if not args.repo.is_dir():
+        parser.error(f"Not a folder: {args.repo}")
+    return args
 
 
 def choose_agent(model: str, *, single: bool):
@@ -136,8 +142,8 @@ def main() -> None:
     model = require_env("OPENAI_MODEL")
 
     agent = choose_agent(model, single=args.single)
-    context = RepoContext(source_root=REPO_ROOT, workspace_root=REPO_ROOT)
-    session = SQLiteSession("inventory-app")
+    context = RepoContext(source_root=args.repo, workspace_root=args.repo)
+    session = SQLiteSession(args.repo.name)
 
     message: str | None = QUESTION
     while message is not None:
