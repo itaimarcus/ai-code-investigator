@@ -73,9 +73,7 @@ def search_code(ctx: RunContextWrapper[RepoContext], query: str) -> str:
     return repo.search_code(ctx.context.workspace_root, query)
 
 
-def apply_replace(
-    context: RepoContext, path: str, old_text: str, new_text: str
-) -> str:
+def apply_replace(context: RepoContext, path: str, old_text: str, new_text: str) -> str:
     """Copy to a workspace if needed, then replace one unique snippet on that copy."""
     if context.replace_attempts >= MAX_REPLACE_ATTEMPTS:
         return (
@@ -85,9 +83,7 @@ def apply_replace(
     context.replace_attempts += 1
     ensure_workspace(context)
     try:
-        result = repo.replace_in_file(
-            context.workspace_root, path, old_text, new_text
-        )
+        result = repo.replace_in_file(context.workspace_root, path, old_text, new_text)
     except repo.RepoAccessError as exc:
         return str(exc)
     context.replaced_paths.add(Path(path).as_posix())
