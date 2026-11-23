@@ -218,6 +218,7 @@ def run_tests(root: Path) -> str:
             capture_output=True,
             text=True,
             timeout=TEST_TIMEOUT_SECONDS,
+            check=False,
         )
     except subprocess.TimeoutExpired as exc:
         partial = _combine_stdio(exc.stdout, exc.stderr)
